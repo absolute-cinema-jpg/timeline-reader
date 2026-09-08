@@ -23,12 +23,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..columns import ColumnSelection, Report
 from ..exporters import rows_to_delimited, write_delimited
 from ..models import Timeline
 from ..parsers import ParseError, parse_timeline
+from .column_dialog import ColumnDialog
 from .widgets import DropZone, ReportTable, make_card, section_label
-
-ReportFn = Callable[[Timeline], "tuple[list[str], list[list[str]]]"]
 
 TIMELINE_EXTS = [".avb", ".edl", ".aaf", ".txt", ".tsv", ".tab"]
 
@@ -57,7 +57,7 @@ class TimelineReportTab(QWidget):
 
     def __init__(
         self,
-        report_fn: ReportFn,
+        report: Report,
         drop_title: str,
         drop_sub: str,
         export_basename: str,
@@ -65,7 +65,8 @@ class TimelineReportTab(QWidget):
         parent=None,
     ):
         super().__init__(parent)
-        self._report_fn = report_fn
+        self._report = report
+        self._selection = ColumnSelection(report.key).load()
         self._export_basename = export_basename
         self._empty_hint = empty_hint
         self._drop_title_text = drop_title
@@ -176,6 +177,10 @@ class TimelineReportTab(QWidget):
         bar.addWidget(self.row_count)
         bar.addStretch(1)
 
+        self.columns_btn = QPushButton("Columns…")
+        self.columns_btn.clicked.connect(self._choose_columns)
+        bar.addWidget(self.columns_btn)
+
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
         self.fmt.addItems(["CSV (.csv)", "TSV (.tsv)"])
@@ -218,7 +223,7 @@ class TimelineReportTab(QWidget):
     def _on_parsed(self, tl: Timeline):
         self._timeline = tl
         try:
-            self._headers, self._rows = self._report_fn(tl)
+            self._headers, self._rows = self._report.build(tl, self._selection)
         except Exception as exc:  # noqa: BLE001
             self._on_failed(f"Report build failed: {exc}")
             return
@@ -282,6 +287,26 @@ class TimelineReportTab(QWidget):
         has = bool(self._rows)
         self.export_btn.setEnabled(has)
         self.copy_btn.setEnabled(has)
+        self.columns_btn.setEnabled(self._timeline is not None)
+
+    # ---- columns ----------------------------------------------------------
+    def _choose_columns(self):
+        if self._timeline is None:
+            return
+        cols = self._report.all_columns(self._timeline)
+        dlg = ColumnDialog(cols, self._selection, self)
+        if dlg.exec():
+            self._rebuild_rows()
+
+    def _rebuild_rows(self):
+        if self._timeline is None:
+            return
+        self._headers, self._rows = self._report.build(self._timeline, self._selection)
+        self.table.set_data(self._headers, self._rows)
+        self.stat_rows[1].setText(str(len(self._rows)))
+        ncols = len(self._headers)
+        self.row_count.setText(f"{len(self._rows)} rows · {ncols} columns")
+        self._update_actions()
 
     # ---- output -----------------------------------------------------------
     def _delimiter(self):

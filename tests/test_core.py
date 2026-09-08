@@ -10,7 +10,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from timeline_reader.captions import parse_caption_text, to_srt
+from timeline_reader.columns import CLIPLIST_REPORT, ColumnSelection, META_PREFIX
 from timeline_reader.effects import classify, is_optical_category
+from timeline_reader.models import Clip, Timeline
 from timeline_reader.timecode import Timecode
 
 
@@ -40,6 +42,44 @@ def test_caption_to_srt():
     srt = to_srt(doc)
     assert "10:00:01,000 --> 10:00:04,480" in srt
     assert "Hello\nWorld" in srt
+
+
+def _demo_timeline() -> Timeline:
+    tl = Timeline(name="demo", fps=25.0)
+    tl.add(Clip(index=1, track="V1", clip_name="1-1-3", tape_name="A001",
+                src_start=100, src_end=150, rec_start=0, rec_end=50,
+                meta={"Take": "3", "Scene": "1"}))
+    tl.add(Clip(index=2, track="V1", clip_name="2-2-1", tape_name="A002",
+                src_start=200, src_end=240, rec_start=50, rec_end=90,
+                meta={"Take": "1"}))
+    return tl
+
+
+def test_default_columns_unchanged():
+    tl = _demo_timeline()
+    sel = ColumnSelection(CLIPLIST_REPORT.key)  # no overrides -> defaults
+    headers, rows = CLIPLIST_REPORT.build(tl, sel)
+    assert headers == ["#", "Track", "Clip Name", "Tape / Source",
+                       "Src In", "Src Out", "Rec In", "Rec Out", "Duration"]
+    assert len(rows) == 2
+
+
+def test_metadata_column_opt_in():
+    tl = _demo_timeline()
+    assert "Take" in tl.meta_columns and "Scene" in tl.meta_columns
+    sel = ColumnSelection(CLIPLIST_REPORT.key)
+    sel.set(META_PREFIX + "Take", True)
+    headers, rows = CLIPLIST_REPORT.build(tl, sel)
+    assert headers[-1] == "Take"
+    assert rows[0][-1] == "3" and rows[1][-1] == "1"
+
+
+def test_exclude_default_column():
+    tl = _demo_timeline()
+    sel = ColumnSelection(CLIPLIST_REPORT.key)
+    sel.set("duration", False)
+    headers, _ = CLIPLIST_REPORT.build(tl, sel)
+    assert "Duration" not in headers
 
 
 if __name__ == "__main__":

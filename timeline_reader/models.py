@@ -45,6 +45,7 @@ class Clip:
     fps: float = 25.0
     drop: bool = False
     effects: list[Effect] = field(default_factory=list)
+    meta: dict[str, str] = field(default_factory=dict)  # extra metadata columns
 
     @property
     def duration(self) -> int:
@@ -64,9 +65,13 @@ class Timeline:
     warnings: list[str] = field(default_factory=list)
     available_sequences: list["SequenceOption"] = field(default_factory=list)
     sequence_key: int | None = None  # which option this timeline was parsed from
+    meta_columns: list[str] = field(default_factory=list)  # discovered metadata keys, ordered
 
     def add(self, clip: Clip) -> None:
         self.clips.append(clip)
+        for key in clip.meta:
+            if key not in self.meta_columns:
+                self.meta_columns.append(key)
 
     def sorted_by_record(self) -> list[Clip]:
         """Clips in record order (then by track), re-indexed 1..N."""

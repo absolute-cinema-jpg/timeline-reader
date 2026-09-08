@@ -35,6 +35,20 @@ When a bin or AAF contains more than one sequence, a **Sequence picker** appears
 in the report tabs so you can switch which sequence the report is built from —
 its video-track count and duration are shown for each.
 
+### Configurable columns
+Both report tabs have a **Columns…** button. The built-in columns are on by
+default (unchanged from before), and any **metadata found in the source** is
+offered as an extra, optional column:
+
+- **Avid bin** — the user bin columns (Scene, Take, Circled, Comment, …) plus
+  derived fields (Project, Format, Origin Bin).
+- **Tab-delimited** — any heading not mapped to a standard field.
+
+Tick columns to include or exclude them; choices are **remembered per report**
+(via `QSettings`, keyed by column) so they persist across files and sessions.
+"Reset to defaults" restores the shipped set. Column logic lives in
+`timeline_reader/columns.py`.
+
 Each report can be **exported to CSV or TSV** (SRT for captions) or copied to the
 clipboard.
 

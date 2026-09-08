@@ -185,6 +185,7 @@ def _resolve_source(src, clip: Clip) -> None:
             clip.clip_name = name
         if mob_type in ("SourceMob", "MasterMob") and name:
             clip.tape_name = name  # last one wins -> physical tape
+        _collect_metadata(m, clip)
         cur = _next_in_chain(m, cur.track_id)
 
     length = clip.rec_end - clip.rec_start
@@ -192,6 +193,48 @@ def _resolve_source(src, clip: Clip) -> None:
     clip.src_end = offset + length
     if not clip.clip_name:
         clip.clip_name = clip.tape_name or "(unnamed)"
+
+
+# Non-user attributes worth surfacing as columns, mapped to friendly labels.
+_DERIVED_ATTRS = {
+    "_PJ": "Project",
+    "SEQUERNCE_FORMAT_STRING": "Format",  # Avid's own (mis)spelling of the key
+    "SEQUENCE_FORMAT_STRING": "Format",
+}
+
+
+def _collect_metadata(mob, clip: Clip) -> None:
+    """Merge a mob's bin-column metadata into ``clip.meta``.
+
+    The user-visible bin columns (Scene, Take, Circled, Comment, …) live in the
+    ``_USER`` attributes dict; a clip's values are spread across its subclip and
+    master mob, so we merge down the chain. The nearest non-empty value wins, so
+    a subclip's own value is not overwritten by the master's.
+    """
+    attrs = getattr(mob, "attributes", None) or {}
+    user = attrs.get("_USER") or {}
+    for key in getattr(user, "keys", lambda: [])():
+        val = _clean(user.get(key))
+        if val and not clip.meta.get(key):
+            clip.meta[key] = val
+    for raw_key, label in _DERIVED_ATTRS.items():
+        if raw_key in attrs:
+            val = _clean(attrs.get(raw_key))
+            if val and not clip.meta.get(label):
+                clip.meta[label] = val
+    org = attrs.get("_ORG_BIN")
+    if org is not None and not clip.meta.get("Origin Bin"):
+        name = _clean(getattr(org, "name", None))
+        if name:
+            clip.meta["Origin Bin"] = name
+
+
+def _clean(value) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    # Avid uses a single space to mean "empty" in some columns (e.g. Circled).
+    return "" if text in ("", " ") else text
 
 
 def _next_in_chain(mob, track_id):

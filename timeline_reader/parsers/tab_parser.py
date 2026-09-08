@@ -43,8 +43,16 @@ def parse(path: str) -> Timeline:
     if len(rows) < 2:
         raise ParseError("File has no data rows below a header.")
 
+    raw_header = [h.strip() for h in rows[0]]
     header = [_norm(h) for h in rows[0]]
     colmap = _map_columns(header)
+    mapped_idxs = set(colmap.values())
+    # Any column we didn't map to a known field becomes a metadata column.
+    extra_cols = [
+        (idx, raw_header[idx] or f"Column {idx + 1}")
+        for idx in range(len(raw_header))
+        if idx not in mapped_idxs
+    ]
     if "clip_name" not in colmap and "tape_name" not in colmap:
         raise ParseError(
             "Couldn't find a clip-name or tape column in the header. "
@@ -80,6 +88,11 @@ def parse(path: str) -> Timeline:
         fx = cell("effects")
         if fx:
             clip.effects.append(Effect(category=fx, name=fx))
+        for idx, label in extra_cols:
+            if idx < len(row):
+                val = row[idx].strip()
+                if val:
+                    clip.meta[label] = val
         if clip.clip_name or clip.tape_name:
             tl.add(clip)
 

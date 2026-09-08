@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __app_name__, __version__
-from ..reports import cliplist_rows, opticals_rows
+from ..columns import CLIPLIST_REPORT, OPTICALS_REPORT
 from .captions_tab import CaptionsTab
 from .report_tab import TimelineReportTab
 
@@ -36,14 +36,14 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
 
         self.opticals = TimelineReportTab(
-            report_fn=opticals_rows,
+            report=OPTICALS_REPORT,
             drop_title="Drop a timeline file",
             drop_sub="Avid bin (.avb) gives full effect data · EDL / AAF also accepted",
             export_basename="opticals",
             empty_hint="Load a timeline to build the opticals list",
         )
         self.cliplist = TimelineReportTab(
-            report_fn=cliplist_rows,
+            report=CLIPLIST_REPORT,
             drop_title="Drop a timeline file",
             drop_sub="Avid bin (.avb), EDL, AAF or tab-delimited",
             export_basename="cliplist",
