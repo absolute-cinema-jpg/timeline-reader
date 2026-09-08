@@ -148,6 +148,7 @@ class Report:
 
     def build(self, tl: Timeline, selection: "ColumnSelection") -> tuple[list[str], list[list[str]]]:
         cols = [c for c in self.all_columns(tl) if selection.effective(c)]
+        cols = selection.ordered(cols)
         headers = [c.label for c in cols]
         rows = [[c.getter(ctx) for c in cols] for ctx in self.iter_ctx(tl)]
         return headers, rows
@@ -160,18 +161,41 @@ CLIPLIST_REPORT = Report("cliplist", _cliplist_builtin(), per_effect=False)
 # --------------------------------------------------------------------------- #
 # Selection (include/exclude) with persistence
 # --------------------------------------------------------------------------- #
+_ORDER_KEY = "__order__"
+
+
 @dataclass
 class ColumnSelection:
-    """Effective include/exclude state = per-column user override, else default."""
+    """Include/exclude state plus a custom column order.
+
+    ``effective(col)`` = per-column user override, else the column's default.
+    ``order`` is a saved list of column ids (it may name columns not present in
+    a given file, and omit newly-seen ones); :meth:`ordered` sorts a column list
+    by it, leaving unlisted columns in their canonical order at the end.
+    """
 
     report_key: str
     overrides: dict[str, bool] = field(default_factory=dict)
+    order: list[str] = field(default_factory=list)
 
     def effective(self, col: ColumnDef) -> bool:
         return self.overrides.get(col.id, col.default)
 
     def set(self, col_id: str, on: bool) -> None:
         self.overrides[col_id] = on
+
+    def set_order(self, ids: list[str]) -> None:
+        self.order = list(ids)
+
+    def ordered(self, cols: list[ColumnDef]) -> list[ColumnDef]:
+        pos = {cid: i for i, cid in enumerate(self.order)}
+        # Stable sort: listed columns first (by saved position); the rest keep
+        # their canonical order (all share the same fallback key).
+        return sorted(cols, key=lambda c: pos.get(c.id, len(pos)))
+
+    def reset(self) -> None:
+        self.overrides.clear()
+        self.order.clear()
 
     # -- persistence (QSettings); imported lazily so non-GUI use has no Qt dep --
     def load(self) -> "ColumnSelection":
@@ -181,7 +205,13 @@ class ColumnSelection:
             return self
         s = QSettings("TimelineReader", "TimelineReader")
         s.beginGroup(f"columns/{self.report_key}")
+        raw_order = s.value(_ORDER_KEY, [])
+        if isinstance(raw_order, str):
+            raw_order = [raw_order]
+        self.order = list(raw_order) if raw_order else []
         for cid in s.childKeys():
+            if cid == _ORDER_KEY:
+                continue
             self.overrides[cid] = s.value(cid, type=bool)
         s.endGroup()
         return self
@@ -193,6 +223,8 @@ class ColumnSelection:
             return
         s = QSettings("TimelineReader", "TimelineReader")
         s.beginGroup(f"columns/{self.report_key}")
+        s.remove("")  # clear stale keys so removed overrides don't linger
+        s.setValue(_ORDER_KEY, self.order)
         for cid, on in self.overrides.items():
             s.setValue(cid, on)
         s.endGroup()

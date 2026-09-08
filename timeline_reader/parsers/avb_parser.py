@@ -101,6 +101,7 @@ def _walk_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> N
             drop=drop,
             effects=effects,
         )
+        _collect_markers(comp, clip)  # sequence-level locators within this segment
         if src is not None:
             _resolve_source(src, clip)
         elif effects:
@@ -186,6 +187,8 @@ def _resolve_source(src, clip: Clip) -> None:
         if mob_type in ("SourceMob", "MasterMob") and name:
             clip.tape_name = name  # last one wins -> physical tape
         _collect_metadata(m, clip)
+        for tr in getattr(m, "tracks", []):
+            _collect_markers(getattr(tr, "component", None), clip)  # master-clip locators
         cur = _next_in_chain(m, cur.track_id)
 
     length = clip.rec_end - clip.rec_start
@@ -227,6 +230,10 @@ def _collect_metadata(mob, clip: Clip) -> None:
         name = _clean(getattr(org, "name", None))
         if name:
             clip.meta["Origin Bin"] = name
+    if not clip.meta.get("Clip Colour"):
+        colour = _clip_colour(attrs)
+        if colour:
+            clip.meta["Clip Colour"] = colour
 
 
 def _clean(value) -> str:
@@ -235,6 +242,83 @@ def _clean(value) -> str:
     text = str(value).strip()
     # Avid uses a single space to mean "empty" in some columns (e.g. Circled).
     return "" if text in ("", " ") else text
+
+
+# Nearest-name palette for Avid clip colours (values in 8-bit RGB).
+_COLOUR_NAMES = [
+    ("Red", (220, 40, 40)), ("Orange", (240, 130, 40)), ("Yellow", (235, 220, 70)),
+    ("Green", (90, 190, 85)), ("Cyan", (70, 200, 210)), ("Blue", (60, 120, 210)),
+    ("Purple", (150, 90, 200)), ("Magenta", (210, 70, 180)), ("Pink", (235, 150, 190)),
+    ("Brown", (150, 90, 50)), ("White", (240, 240, 240)), ("Black", (20, 20, 20)),
+    ("Grey", (128, 128, 128)),
+]
+
+
+def _clip_colour(attrs) -> str:
+    """Map a mob's 16-bit ``_COLOR_R/G/B`` to a nearest Avid colour name."""
+    if attrs.get("_COLOR_NONE") or "_COLOR_R" not in attrs:
+        return ""
+    try:
+        r = int(attrs["_COLOR_R"]) >> 8
+        g = int(attrs["_COLOR_G"]) >> 8
+        b = int(attrs["_COLOR_B"]) >> 8
+    except (TypeError, ValueError, KeyError):
+        return ""
+    name, dist = min(
+        ((n, (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2) for n, (cr, cg, cb) in _COLOUR_NAMES),
+        key=lambda x: x[1],
+    )
+    # If nothing is close, fall back to a hex value so the info isn't lost.
+    return name if dist <= 6000 else f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _marker_comment(marker) -> str:
+    """Best-effort comment text for an Avid locator/marker.
+
+    NOTE: the sample bin has no markers, so this path is unverified against real
+    marker data. It reads the marker's referenced Attributes object, preferring
+    the standard comment key and otherwise joining any text values.
+    """
+    attrs = getattr(marker, "attributes", None)
+    if attrs is None or not hasattr(attrs, "get"):
+        return ""
+    for key in ("_ATN_CRM_COM", "CommentMarkUser", "Comment", "comment"):
+        val = _clean(attrs.get(key))
+        if val:
+            return val
+    vals = [_clean(v) for v in attrs.values() if isinstance(v, str)]
+    return " ".join(v for v in vals if v)
+
+
+def _collect_markers(node, clip: Clip, seen: set | None = None, depth: int = 0) -> None:
+    """Scan a component subtree for markers, appending comments to ``clip.meta``.
+
+    Markers attach as entries in a component's ``attributes`` (single or list).
+    """
+    from avb.misc import Marker
+    if node is None or depth > 12:
+        return
+    seen = seen if seen is not None else set()
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+
+    attrs = getattr(node, "attributes", None)
+    if attrs is not None and hasattr(attrs, "items"):
+        for value in attrs.values():
+            for item in (value if isinstance(value, list) else [value]):
+                if isinstance(item, Marker):
+                    comment = _marker_comment(item)
+                    if comment:
+                        existing = clip.meta.get("Markers", "")
+                        clip.meta["Markers"] = f"{existing}; {comment}" if existing else comment
+
+    pd = getattr(node, "property_data", {})
+    for tr in pd.get("tracks", []) or []:
+        _collect_markers(getattr(tr, "component", None), clip, seen, depth + 1)
+    if isinstance(node, Sequence):
+        for sub in node.components:
+            _collect_markers(sub, clip, seen, depth + 1)
 
 
 def _next_in_chain(mob, track_id):

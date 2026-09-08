@@ -82,6 +82,18 @@ def test_exclude_default_column():
     assert "Duration" not in headers
 
 
+def test_column_reorder():
+    tl = _demo_timeline()
+    sel = ColumnSelection(CLIPLIST_REPORT.key)
+    sel.set(META_PREFIX + "Take", True)
+    # Move Track and Take to the front; the rest keep canonical order after.
+    sel.set_order(["track", META_PREFIX + "Take", "index"])
+    headers, rows = CLIPLIST_REPORT.build(tl, sel)
+    assert headers[:3] == ["Track", "Take", "#"]
+    assert headers[3] == "Clip Name"  # unlisted columns stay in canonical order
+    assert rows[0][:3] == ["V1", "3", "1"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

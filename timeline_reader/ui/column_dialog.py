@@ -1,34 +1,38 @@
-"""Dialog to include/exclude report columns, grouped by kind."""
+"""Dialog to include/exclude report columns and drag to reorder them."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox,
+    QAbstractItemView,
     QDialog,
     QDialogButtonBox,
-    QFrame,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
-    QWidget,
 )
 
 from ..columns import ColumnDef, ColumnSelection
-from .widgets import section_label
+from . import theme
 
 
 class ColumnDialog(QDialog):
-    """Lets the user pick which columns appear. Mutates ``selection`` on accept."""
+    """Pick which columns appear and in what order. Mutates ``selection`` on OK.
+
+    The list is a single drag-to-reorder checklist: tick to include a column,
+    drag a row to move it. Metadata columns are tinted so they stand out.
+    """
 
     def __init__(self, columns: list[ColumnDef], selection: ColumnSelection, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Choose columns")
-        self.setMinimumWidth(360)
-        self._columns = columns
+        self.setWindowTitle("Columns")
+        self.setMinimumSize(340, 460)
+        self._columns = {c.id: c for c in columns}
+        self._all = columns
         self._selection = selection
-        self._checks: dict[str, QCheckBox] = {}
         self._build()
 
     def _build(self):
@@ -37,45 +41,20 @@ class ColumnDialog(QDialog):
         root.setSpacing(10)
 
         intro = QLabel(
-            "Tick the columns to include in the report and export. "
-            "Metadata columns are read from the source file."
+            "Tick columns to include them. Drag a row to change the order they "
+            "appear in the table and the exported spreadsheet."
         )
         intro.setObjectName("Hint")
         intro.setWordWrap(True)
         root.addWidget(intro)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        inner = QWidget()
-        col_lay = QVBoxLayout(inner)
-        col_lay.setContentsMargins(2, 2, 2, 2)
-        col_lay.setSpacing(4)
-
-        current_group = None
-        any_meta = False
-        for col in self._columns:
-            if col.group != current_group:
-                if current_group is not None:
-                    col_lay.addSpacing(6)
-                col_lay.addWidget(section_label(col.group))
-                current_group = col.group
-            cb = QCheckBox(col.label)
-            cb.setChecked(self._selection.effective(col))
-            self._checks[col.id] = cb
-            col_lay.addWidget(cb)
-            if col.group == "Metadata":
-                any_meta = True
-        if not any_meta:
-            note = QLabel("No extra metadata columns were found in this file.")
-            note.setObjectName("Hint")
-            note.setWordWrap(True)
-            col_lay.addSpacing(6)
-            col_lay.addWidget(section_label("Metadata"))
-            col_lay.addWidget(note)
-        col_lay.addStretch(1)
-        scroll.setWidget(inner)
-        root.addWidget(scroll, 1)
+        self.list = QListWidget()
+        self.list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.list.setDefaultDropAction(Qt.MoveAction)
+        self.list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list.setSpacing(1)
+        root.addWidget(self.list, 1)
+        self._populate(self._selection.ordered(self._all))
 
         reset = QPushButton("Reset to defaults")
         reset.clicked.connect(self._reset)
@@ -86,12 +65,33 @@ class ColumnDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
+    def _populate(self, columns: list[ColumnDef]):
+        self.list.clear()
+        for col in columns:
+            item = QListWidgetItem(col.label)
+            flags = (
+                Qt.ItemIsEnabled | Qt.ItemIsSelectable
+                | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled
+            )
+            item.setFlags(flags)  # note: no DropEnabled -> rows can't nest
+            item.setCheckState(Qt.Checked if self._selection.effective(col) else Qt.Unchecked)
+            item.setData(Qt.UserRole, col.id)
+            item.setToolTip(f"{col.group} column")
+            if col.group == "Metadata":
+                item.setForeground(QColor(theme.AMBER))
+            self.list.addItem(item)
+
     def _reset(self):
-        for col in self._columns:
-            self._checks[col.id].setChecked(col.default)
+        self._selection.reset()
+        self._populate(self._all)  # canonical order, default checks
 
     def accept(self):
-        for col in self._columns:
-            self._selection.set(col.id, self._checks[col.id].isChecked())
+        order: list[str] = []
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            cid = item.data(Qt.UserRole)
+            order.append(cid)
+            self._selection.set(cid, item.checkState() == Qt.Checked)
+        self._selection.set_order(order)
         self._selection.save()
         super().accept()
