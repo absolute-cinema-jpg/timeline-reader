@@ -1,0 +1,11 @@
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+.DS_Store
+assets/AppIcon.iconset/
+
+# Not tracked — local reference/test data only
+test files/
+refs/

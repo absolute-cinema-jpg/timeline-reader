@@ -1,0 +1,6 @@
+pyaaf2==1.7.1
+pyavb==1.4.0
+PySide6==6.11.2
+PySide6_Addons==6.11.2
+PySide6_Essentials==6.11.2
+shiboken6==6.11.2
