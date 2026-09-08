@@ -45,11 +45,14 @@ offered as an extra, optional column:
   nearest Avid colour name) and **marker / locator comments**.
 - **Tab-delimited** — any heading not mapped to a standard field.
 
-Tick columns to include or exclude them, and **drag a row to reorder** how the
-columns appear in the table and the exported spreadsheet. Both the selection and
-the order are **remembered per report** (via `QSettings`) so they persist across
-files and sessions. "Reset to defaults" restores the shipped set and order.
-Column logic lives in `timeline_reader/columns.py`.
+Tick columns to include or exclude them, and reorder them either by **dragging
+a table-header directly** or by dragging a row in the dialog — both change how
+the columns appear in the table and the exported spreadsheet. Both the selection
+and the order are **remembered per report** (via `QSettings`) so they persist
+across files and sessions. "Reset to defaults" restores the shipped set and
+order. Column logic lives in `timeline_reader/columns.py`.
+
+Exports default to the **chosen sequence's name** (e.g. `THR_L_260721.csv`).
 
 > Marker/locator extraction is implemented but **unverified** — the sample bin
 > contains no markers. It reads `avb.misc.Marker` comments wherever they attach;

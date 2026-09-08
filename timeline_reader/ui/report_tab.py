@@ -77,6 +77,7 @@ class TimelineReportTab(QWidget):
         self._worker: _ParseWorker | None = None
         self._path: str = ""
         self._suppress_switch = False
+        self._col_ids: list[str] = []
         self._build()
 
     # ---- layout -----------------------------------------------------------
@@ -98,6 +99,7 @@ class TimelineReportTab(QWidget):
         root.addLayout(top)
 
         self.table = ReportTable()
+        self.table.horizontalHeader().sectionMoved.connect(self._on_section_moved)
         root.addWidget(self.table, 1)
 
         root.addLayout(self._action_bar())
@@ -223,10 +225,12 @@ class TimelineReportTab(QWidget):
     def _on_parsed(self, tl: Timeline):
         self._timeline = tl
         try:
-            self._headers, self._rows = self._report.build(tl, self._selection)
+            cols, self._rows = self._report.render(tl, self._selection)
         except Exception as exc:  # noqa: BLE001
             self._on_failed(f"Report build failed: {exc}")
             return
+        self._col_ids = [c.id for c in cols]
+        self._headers = [c.label for c in cols]
         self.table.set_data(self._headers, self._rows)
         meta = f"{tl.source_format} · {tl.fps:g} fps · {len(tl.clips)} clips"
         self.drop.show_loaded(tl.source_path, meta)
@@ -301,22 +305,40 @@ class TimelineReportTab(QWidget):
     def _rebuild_rows(self):
         if self._timeline is None:
             return
-        self._headers, self._rows = self._report.build(self._timeline, self._selection)
+        cols, self._rows = self._report.render(self._timeline, self._selection)
+        self._col_ids = [c.id for c in cols]
+        self._headers = [c.label for c in cols]
         self.table.set_data(self._headers, self._rows)
         self.stat_rows[1].setText(str(len(self._rows)))
-        ncols = len(self._headers)
-        self.row_count.setText(f"{len(self._rows)} rows · {ncols} columns")
+        self.row_count.setText(f"{len(self._rows)} rows · {len(self._headers)} columns")
         self._update_actions()
+
+    def _on_section_moved(self, logical: int, old_visual: int, new_visual: int):
+        """User dragged a table header: persist the new order and rebuild so the
+        model, export and saved order all agree (the header resets to identity)."""
+        if not self._col_ids or self._timeline is None:
+            return
+        header = self.table.horizontalHeader()
+        n = len(self._col_ids)
+        visible_order = [self._col_ids[header.logicalIndex(v)] for v in range(n)]
+        # Keep any currently-hidden columns' saved positions after the visible ones.
+        hidden = [cid for cid in self._selection.order if cid not in visible_order]
+        self._selection.set_order(visible_order + hidden)
+        self._selection.save()
+        self._rebuild_rows()
+        self.status.emit("Columns reordered")
 
     # ---- output -----------------------------------------------------------
     def _delimiter(self):
         return "," if self.fmt.currentIndex() == 0 else "\t"
 
     def _suggested_name(self):
-        base = self._timeline.name if self._timeline else "report"
-        base = "".join(c if c.isalnum() or c in "-_ " else "_" for c in base).strip() or "report"
+        # Default filename is just the chosen sequence's name.
+        base = self._timeline.name if self._timeline else self._export_basename
+        base = "".join(c if c.isalnum() or c in "-_ " else "_" for c in base).strip()
+        base = base or self._export_basename
         ext = ".csv" if self.fmt.currentIndex() == 0 else ".tsv"
-        return f"{base}_{self._export_basename}{ext}"
+        return f"{base}{ext}"
 
     def _export(self):
         if not self._rows:

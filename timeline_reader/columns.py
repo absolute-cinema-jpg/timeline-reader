@@ -146,12 +146,23 @@ class Report:
                 n += 1
                 yield RowCtx(tl, clip, n)
 
-    def build(self, tl: Timeline, selection: "ColumnSelection") -> tuple[list[str], list[list[str]]]:
+    def columns_for(self, tl: Timeline, selection: "ColumnSelection") -> list[ColumnDef]:
+        """The included columns, in effective (custom or canonical) order."""
         cols = [c for c in self.all_columns(tl) if selection.effective(c)]
-        cols = selection.ordered(cols)
-        headers = [c.label for c in cols]
+        return selection.ordered(cols)
+
+    def render(
+        self, tl: Timeline, selection: "ColumnSelection"
+    ) -> tuple[list[ColumnDef], list[list[str]]]:
+        """Ordered column defs plus the data rows — the tab needs the defs so it
+        can map a dragged header position back to a column id."""
+        cols = self.columns_for(tl, selection)
         rows = [[c.getter(ctx) for c in cols] for ctx in self.iter_ctx(tl)]
-        return headers, rows
+        return cols, rows
+
+    def build(self, tl: Timeline, selection: "ColumnSelection") -> tuple[list[str], list[list[str]]]:
+        cols, rows = self.render(tl, selection)
+        return [c.label for c in cols], rows
 
 
 OPTICALS_REPORT = Report("opticals", _opticals_builtin(), per_effect=True, optical_only=True)

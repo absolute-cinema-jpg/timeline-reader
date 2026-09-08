@@ -217,14 +217,28 @@ class ReportTable(QTableView):
         self.horizontalHeader().setHighlightSections(False)
         self.horizontalHeader().setStretchLastSection(True)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.horizontalHeader().setSectionsMovable(True)  # drag headers to reorder
 
     def set_data(self, headers, rows):
         self._model.set_data(headers, rows)
+        self._reset_visual_order()
         self.resizeColumnsToContents()
         header = self.horizontalHeader()
         for c in range(self._model.columnCount()):
             if header.sectionSize(c) > 320:
                 header.resizeSection(c, 320)
+
+    def _reset_visual_order(self):
+        """Restore visual==logical order. Qt keeps a header's moved-section map
+        across model resets, so after we rebuild data in a new order we must
+        clear it. Signals are blocked so this doesn't re-fire ``sectionMoved``."""
+        header = self.horizontalHeader()
+        header.blockSignals(True)
+        for logical in range(self._model.columnCount()):
+            visual = header.visualIndex(logical)
+            if visual != logical:
+                header.moveSection(visual, logical)
+        header.blockSignals(False)
 
     @property
     def model_(self):
