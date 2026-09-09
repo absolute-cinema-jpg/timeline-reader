@@ -68,11 +68,12 @@ def _demo_timeline() -> Timeline:
     return tl
 
 
-def test_default_columns_unchanged():
+def test_default_columns_order():
     tl = _demo_timeline()
     sel = ColumnSelection(CLIPLIST_REPORT.key)  # no overrides -> defaults
     headers, rows = CLIPLIST_REPORT.build(tl, sel)
-    assert headers == ["#", "Track", "Clip Name", "Tape / Source",
+    # # leads, Clip Name second; the rest follow.
+    assert headers == ["#", "Clip Name", "Track", "Tape / Source",
                        "Src In", "Src Out", "Rec In", "Rec Out", "Duration"]
     assert len(rows) == 2
 

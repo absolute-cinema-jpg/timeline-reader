@@ -75,11 +75,11 @@ _TIMECODES = [
 
 
 def _opticals_builtin() -> list[ColumnDef]:
-    # Order chosen to match the original opticals report layout.
+    # # and Clip Name lead; effect and remaining identity columns follow.
     return [
-        _CORE_BEFORE[0], _CORE_BEFORE[1],
+        _CORE_BEFORE[0], _CLIP_IDENTITY[0], _CORE_BEFORE[1],
         _EFFECT_COLS[0], _EFFECT_COLS[1],
-        _CLIP_IDENTITY[0], _CLIP_IDENTITY[1],
+        _CLIP_IDENTITY[1],
         _col("rec_in"), _col("rec_out"), _col("src_in"), _col("src_out"),
         _col("duration"),
         _make("notes", "Notes", "Effect", True, lambda c: c.effect.detail if c.effect else ""),
@@ -89,8 +89,8 @@ def _opticals_builtin() -> list[ColumnDef]:
 
 def _cliplist_builtin() -> list[ColumnDef]:
     return [
-        _CORE_BEFORE[0], _CORE_BEFORE[1],
-        _CLIP_IDENTITY[0], _CLIP_IDENTITY[1],
+        _CORE_BEFORE[0], _CLIP_IDENTITY[0], _CORE_BEFORE[1],
+        _CLIP_IDENTITY[1],
         _col("src_in"), _col("src_out"), _col("rec_in"), _col("rec_out"),
         _col("duration"),
     ]

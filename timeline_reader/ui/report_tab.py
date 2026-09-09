@@ -9,14 +9,15 @@ from __future__ import annotations
 import os
 from typing import Callable
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QPoint, Qt, QThread, Signal
+from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -113,13 +114,23 @@ class TimelineReportTab(QWidget):
         self.table = ReportTable()
         self.table.setToolTip(
             "Exports every row by default. Select rows to export just those "
-            "(⌘/Shift-click for more); Esc or “Clear selection” goes back to all."
+            "(⌘/Shift-click for more); Esc or ⌘⇧A goes back to all.\n"
+            "Right-click a column header to choose columns."
         )
         self.table.horizontalHeader().sectionMoved.connect(self._on_section_moved)
+        header = self.table.horizontalHeader()
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._header_menu)
         root.addWidget(self.table, 1)
 
         root.addLayout(self._action_bar())
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+
+        # Deselect all — standard chord, works from anywhere in this tab.
+        self._deselect_sc = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
+        self._deselect_sc.setContext(Qt.WidgetWithChildrenShortcut)
+        self._deselect_sc.activated.connect(self.table.clearSelection)
+
         self._update_actions()
 
     def _info_card(self):
@@ -190,15 +201,6 @@ class TimelineReportTab(QWidget):
         self.row_count.setObjectName("Hint")
         bar.addWidget(self.row_count)
         bar.addStretch(1)
-
-        self.clear_sel_btn = QPushButton("Clear selection")
-        self.clear_sel_btn.clicked.connect(self.table.clearSelection)
-        self.clear_sel_btn.hide()  # only shown while rows are selected
-        bar.addWidget(self.clear_sel_btn)
-
-        self.columns_btn = QPushButton("Columns…")
-        self.columns_btn.clicked.connect(self._choose_columns)
-        bar.addWidget(self.columns_btn)
 
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
@@ -311,7 +313,6 @@ class TimelineReportTab(QWidget):
         has = bool(self._rows)
         self.export_btn.setEnabled(has)
         self.copy_btn.setEnabled(has)
-        self.columns_btn.setEnabled(self._timeline is not None)
         self._on_selection_changed()
 
     def _on_selection_changed(self, *_):
@@ -320,10 +321,8 @@ class TimelineReportTab(QWidget):
         n = len(self.table.selected_rows()) if self._rows else 0
         if n:
             self.export_btn.setText(f"Export {n} selected…")
-            self.clear_sel_btn.show()
         else:
             self.export_btn.setText("Export all…")
-            self.clear_sel_btn.hide()
         self._update_stats()
 
     def _update_stats(self):
@@ -345,6 +344,14 @@ class TimelineReportTab(QWidget):
         self.stat_duration[1].setText(frames_to_duration(total, fps))
 
     # ---- columns ----------------------------------------------------------
+    def _header_menu(self, pos: QPoint):
+        """Right-clicking a column header offers the column chooser."""
+        menu = QMenu(self)
+        act = menu.addAction("Choose columns…")
+        act.setEnabled(self._timeline is not None)
+        act.triggered.connect(self._choose_columns)
+        menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
+
     def _choose_columns(self):
         if self._timeline is None:
             return

@@ -29,6 +29,8 @@ from . import theme
 
 # Columns whose values are timecodes/durations -> render monospaced.
 _MONO_HINTS = ("in", "out", "duration", "#")
+# Identity columns tinted apart from the rest (matched on header label).
+_IDENTITY_LABELS = {"#", "clip name"}
 
 
 class DropZone(QFrame):
@@ -154,6 +156,7 @@ class TableModel(QAbstractTableModel):
             if any(hint in h.lower() for hint in _MONO_HINTS)
         }
         self._effect_col = self._find_col("effect")
+        self._id_cols = self._identity_cols(self._headers)
         self._mono = QFont("SF Mono")
         self._mono.setStyleHint(QFont.Monospace)
         self._mono.setPointSize(12)
@@ -164,6 +167,10 @@ class TableModel(QAbstractTableModel):
                 return i
         return -1
 
+    @staticmethod
+    def _identity_cols(headers) -> set[int]:
+        return {i for i, h in enumerate(headers) if h.lower() in _IDENTITY_LABELS}
+
     def set_data(self, headers, rows):
         self.beginResetModel()
         self._headers = headers
@@ -173,6 +180,7 @@ class TableModel(QAbstractTableModel):
             if any(hint in h.lower() for hint in _MONO_HINTS)
         }
         self._effect_col = self._find_col("effect")
+        self._id_cols = self._identity_cols(headers)
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
@@ -190,8 +198,11 @@ class TableModel(QAbstractTableModel):
             return value
         if role == Qt.FontRole and col in self._mono_cols:
             return self._mono
-        if role == Qt.ForegroundRole and col == self._effect_col and value:
-            return QColor(theme.AMBER)
+        if role == Qt.ForegroundRole:
+            if col == self._effect_col and value:
+                return QColor(theme.AMBER)
+            if col in self._id_cols:
+                return QColor(theme.IDENTITY)
         if role == Qt.TextAlignmentRole and col in self._mono_cols:
             return int(Qt.AlignVCenter | Qt.AlignLeft)
         return None

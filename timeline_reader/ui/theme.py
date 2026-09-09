@@ -23,7 +23,12 @@ TEXT_BRIGHT = "#f0f0f0"
 ACCENT = "#4a90d9"        # Resolve-ish blue
 ACCENT_HI = "#5fa3e6"
 AMBER = "#e0952b"         # effect / warning highlight
-GREEN = "#4caf6d"
+# Letterboxd-inspired accent trio (orange / green / blue).
+GREEN = "#00c030"         # action green (export)
+GREEN_HI = "#00d94f"
+ORANGE = "#ff8000"
+LBLUE = "#40bcf4"         # identity-column highlight
+IDENTITY = LBLUE          # # and Clip Name columns
 ROW_ALT = "#262626"
 HEADER_BG = "#2a2a2a"
 SELECT_BG = "#31506f"
@@ -131,11 +136,11 @@ QPushButton:hover {{ background: #333333; border-color: #555; }}
 QPushButton:pressed {{ background: #2a2a2a; }}
 QPushButton:disabled {{ color: #5a5a5a; border-color: {BORDER}; background: {BG_PANEL}; }}
 QPushButton#Primary {{
-    background: {ACCENT}; border: 1px solid {ACCENT};
-    color: white; font-weight: 600;
+    background: {GREEN}; border: 1px solid {GREEN};
+    color: #08240f; font-weight: 700;
 }}
-QPushButton#Primary:hover {{ background: {ACCENT_HI}; border-color: {ACCENT_HI}; }}
-QPushButton#Primary:disabled {{ background: #33455a; border-color: #33455a; color: #7f8c99; }}
+QPushButton#Primary:hover {{ background: {GREEN_HI}; border-color: {GREEN_HI}; }}
+QPushButton#Primary:disabled {{ background: #244a2f; border-color: #244a2f; color: #6f8a77; }}
 
 /* ---- Inputs ---- */
 QComboBox, QLineEdit, QSpinBox {{
