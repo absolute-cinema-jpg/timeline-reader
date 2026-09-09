@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -60,6 +62,14 @@ class MainWindow(QMainWindow):
         for tab in (self.opticals, self.cliplist, self.markers, self.captions):
             tab.status.connect(self._status)
 
+        # Choosing a timeline file in one tab loads it in the others too. The
+        # Captions tab reads caption .txt files, not timelines, so it's excluded.
+        self._timeline_tabs = (self.opticals, self.cliplist, self.markers)
+        for tab in self._timeline_tabs:
+            tab.drop.fileSelected.connect(
+                lambda path, origin=tab: self._sync_timeline_file(origin, path)
+            )
+
         self.tabs.addTab(self.opticals, "  Opticals List  ")
         self.tabs.addTab(self.cliplist, "  Clip List  ")
         self.tabs.addTab(self.markers, "  Markers  ")
@@ -109,6 +119,25 @@ class MainWindow(QMainWindow):
         ver.setObjectName("AppSubtitle")
         lay.addWidget(ver)
         return bar
+
+    def _sync_timeline_file(self, origin, path: str):
+        """Mirror a file chosen in one timeline tab into the other timeline tabs.
+
+        Loading a sibling calls its ``_on_file`` directly (not via its drop
+        zone), so it does not re-emit and cannot loop back. A tab already showing
+        this file is left alone. Clearing (empty path) is not mirrored.
+        """
+        if not path:
+            return
+        mirrored = False
+        for tab in self._timeline_tabs:
+            if tab is origin:
+                continue
+            if getattr(tab, "_path", "") != path:
+                tab._on_file(path)
+                mirrored = True
+        if mirrored:
+            self._status(f"Loaded {os.path.basename(path)} into every timeline tab")
 
     def _status(self, message: str):
         self.statusBar().showMessage(message, 8000)
