@@ -35,6 +35,7 @@ from ..exporters import (
 )
 from ..models import Timeline
 from ..parsers import ParseError, parse_timeline
+from ..timecode import frames_to_duration
 from .column_dialog import ColumnDialog
 from .widgets import DropZone, ReportTable, make_card, section_label
 
@@ -70,6 +71,7 @@ class TimelineReportTab(QWidget):
         drop_sub: str,
         export_basename: str,
         empty_hint: str,
+        count_label: str = "Clips",
         parent=None,
     ):
         super().__init__(parent)
@@ -77,11 +79,13 @@ class TimelineReportTab(QWidget):
         self._selection = ColumnSelection(report.key).load()
         self._export_basename = export_basename
         self._empty_hint = empty_hint
+        self._count_label = count_label
         self._drop_title_text = drop_title
         self._drop_sub_text = drop_sub
         self._timeline: Timeline | None = None
         self._headers: list[str] = []
         self._rows: list[list[str]] = []
+        self._row_durations: list[int] = []
         self._worker: _ParseWorker | None = None
         self._path: str = ""
         self._suppress_switch = False
@@ -153,12 +157,10 @@ class TimelineReportTab(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(28)
-        self.stat_clips = self._stat("—", "CLIPS")
-        self.stat_rows = self._stat("—", self._rows_stat_label())
-        self.stat_fps = self._stat("—", "FPS")
-        stats.addLayout(self.stat_clips[0])
-        stats.addLayout(self.stat_rows[0])
-        stats.addLayout(self.stat_fps[0])
+        self.stat_count = self._stat("—", self._count_label.upper())
+        self.stat_duration = self._stat("—", "DURATION")
+        stats.addLayout(self.stat_count[0])
+        stats.addLayout(self.stat_duration[0])
         stats.addStretch(1)
         lay.addLayout(stats)
 
@@ -169,9 +171,6 @@ class TimelineReportTab(QWidget):
         lay.addWidget(self.warn)
         lay.addStretch(1)
         return card
-
-    def _rows_stat_label(self) -> str:
-        return "ROWS"
 
     def _stat(self, value: str, label: str):
         box = QVBoxLayout()
@@ -253,6 +252,7 @@ class TimelineReportTab(QWidget):
             return
         self._col_ids = [c.id for c in cols]
         self._headers = [c.label for c in cols]
+        self._row_durations = [ctx.clip.duration for ctx in self._report.iter_ctx(tl)]
         self.table.set_data(self._headers, self._rows)
         meta = f"{tl.source_format} · {tl.fps:g} fps · {len(tl.clips)} clips"
         self.drop.show_loaded(tl.source_path, meta)
@@ -260,9 +260,7 @@ class TimelineReportTab(QWidget):
         self.format_badge.show()
         self.seq_name.setText(tl.name or "(untitled sequence)")
         self._populate_sequences(tl)
-        self.stat_clips[1].setText(str(len(tl.clips)))
-        self.stat_rows[1].setText(str(len(self._rows)))
-        self.stat_fps[1].setText(f"{tl.fps:g}")
+        self._update_stats()
         if tl.warnings:
             self.warn.setText("⚠ " + "  ".join(tl.warnings))
             self.warn.show()
@@ -299,12 +297,12 @@ class TimelineReportTab(QWidget):
         self._timeline = None
         self._path = ""
         self._headers, self._rows = [], []
+        self._row_durations = []
         self.table.set_data([], [])
         self.format_badge.hide()
         self.seq_row.hide()
         self.seq_name.setText("No file loaded")
-        for _, v, _l in (self.stat_clips, self.stat_rows, self.stat_fps):
-            v.setText("—")
+        self._update_stats()
         self.warn.hide()
         self.row_count.setText(self._empty_hint)
         self._update_actions()
@@ -326,6 +324,25 @@ class TimelineReportTab(QWidget):
         else:
             self.export_btn.setText("Export all…")
             self.clear_sel_btn.hide()
+        self._update_stats()
+
+    def _update_stats(self):
+        """Show the count and total duration for the current selection, or for the
+        whole report when nothing is selected."""
+        if not self._rows:
+            self.stat_count[1].setText("—")
+            self.stat_count[2].setText(self._count_label.upper())
+            self.stat_duration[1].setText("—")
+            return
+        sel = self.table.selected_rows()
+        idxs = sel if sel else range(len(self._rows))
+        total = sum(
+            self._row_durations[i] for i in idxs if i < len(self._row_durations)
+        )
+        fps = self._timeline.fps if self._timeline else 25.0
+        self.stat_count[1].setText(str(len(sel) if sel else len(self._rows)))
+        self.stat_count[2].setText("SELECTED" if sel else self._count_label.upper())
+        self.stat_duration[1].setText(frames_to_duration(total, fps))
 
     # ---- columns ----------------------------------------------------------
     def _choose_columns(self):
@@ -342,8 +359,9 @@ class TimelineReportTab(QWidget):
         cols, self._rows = self._report.render(self._timeline, self._selection)
         self._col_ids = [c.id for c in cols]
         self._headers = [c.label for c in cols]
+        self._row_durations = [ctx.clip.duration for ctx in self._report.iter_ctx(self._timeline)]
         self.table.set_data(self._headers, self._rows)
-        self.stat_rows[1].setText(str(len(self._rows)))
+        self._update_stats()
         self.row_count.setText(f"{len(self._rows)} rows · {len(self._headers)} columns")
         self._update_actions()
 
@@ -386,7 +404,8 @@ class TimelineReportTab(QWidget):
             return
         rows, is_selection = self._selected_or_all_rows()
         _label, ext, filt, kind = format_at(self.fmt.currentIndex())
-        start = settings.export_start_path(self._suggested_name())
+        input_dir = os.path.dirname(os.path.abspath(self._path)) if self._path else ""
+        start = settings.export_start_path(self._suggested_name(), input_dir)
         path, _ = QFileDialog.getSaveFileName(self, "Export report", start, filt)
         if not path:
             return

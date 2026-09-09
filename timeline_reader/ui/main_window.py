@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
             drop_sub="Avid bin (.avb) gives full effect data · EDL / AAF also accepted",
             export_basename="opticals",
             empty_hint="Load a timeline to build the opticals list",
+            count_label="Opticals",
         )
         self.cliplist = TimelineReportTab(
             report=CLIPLIST_REPORT,
@@ -51,6 +52,7 @@ class MainWindow(QMainWindow):
             drop_sub="Avid bin (.avb), EDL, AAF or tab-delimited",
             export_basename="cliplist",
             empty_hint="Load a timeline to build the clip list",
+            count_label="Clips",
         )
         self.markers = MarkersTab()
         self.captions = CaptionsTab()
