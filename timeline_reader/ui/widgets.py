@@ -200,7 +200,7 @@ class TableModel(QAbstractTableModel):
             return self._mono
         if role == Qt.ForegroundRole:
             if col == self._effect_col and value:
-                return QColor(theme.AMBER)
+                return QColor(theme.RED)
             if col in self._id_cols:
                 return QColor(theme.IDENTITY)
         if role == Qt.TextAlignmentRole and col in self._mono_cols:
