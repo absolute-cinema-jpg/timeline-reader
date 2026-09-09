@@ -30,6 +30,18 @@ def format_at(index: int) -> tuple[str, str, str, str]:
     return EXPORT_FORMATS[index]
 
 
+def index_of_kind(kind: str, default: int = 0) -> int:
+    """Combo index for a saved format kind ("csv"/"tsv"/"xlsx"/"ods")."""
+    for i, fmt in enumerate(EXPORT_FORMATS):
+        if fmt[3] == kind:
+            return i
+    return default
+
+
+def kind_at(index: int) -> str:
+    return format_at(index)[3]
+
+
 # --------------------------------------------------------------------------- #
 # Dispatcher
 # --------------------------------------------------------------------------- #

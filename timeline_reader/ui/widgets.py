@@ -95,8 +95,14 @@ class DropZone(QFrame):
         for url in event.mimeData().urls():
             path = url.toLocalFile()
             if self._accepts(path):
-                self.fileSelected.emit(path)
+                self._emit(path)
                 return
+
+    def _emit(self, path: str) -> None:
+        """Emit a chosen path, remembering its folder for next time."""
+        from .. import settings
+        settings.remember_open_path(path)
+        self.fileSelected.emit(path)
 
     def _set_drag(self, active: bool):
         self.setProperty("dragActive", active)
@@ -104,12 +110,14 @@ class DropZone(QFrame):
         self.style().polish(self)
 
     def _browse(self):
+        from .. import settings
         pattern = " ".join(f"*{e}" for e in self._extensions)
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select file", "", f"Supported files ({pattern});;All files (*)"
+            self, "Select file", settings.last_open_dir(),
+            f"Supported files ({pattern});;All files (*)"
         )
         if path:
-            self.fileSelected.emit(path)
+            self._emit(path)
 
     # ---- state ----
     def show_loaded(self, path: str, meta: str = ""):

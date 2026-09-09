@@ -24,7 +24,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..exporters import export_table, format_at, format_labels, rows_to_delimited
+from .. import settings
+from ..exporters import (
+    export_table,
+    format_at,
+    format_labels,
+    index_of_kind,
+    kind_at,
+    rows_to_delimited,
+)
 from ..models import Marker, Timeline
 from ..timecode import frames_to_duration, frames_to_tc
 from .report_tab import TIMELINE_EXTS, _ParseWorker
@@ -143,6 +151,10 @@ class MarkersTab(QWidget):
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
         self.fmt.addItems(format_labels())
+        self.fmt.setCurrentIndex(index_of_kind(settings.export_format_kind()))
+        self.fmt.currentIndexChanged.connect(
+            lambda i: settings.set_export_format_kind(kind_at(i))
+        )
         bar.addWidget(self.fmt)
 
         self.copy_btn = QPushButton("Copy")
@@ -273,7 +285,8 @@ class MarkersTab(QWidget):
         if not self._rows:
             return
         _label, ext, filt, kind = format_at(self.fmt.currentIndex())
-        path, _ = QFileDialog.getSaveFileName(self, "Export markers", self._suggested_name(), filt)
+        start = settings.export_start_path(self._suggested_name())
+        path, _ = QFileDialog.getSaveFileName(self, "Export markers", start, filt)
         if not path:
             return
         if not path.lower().endswith(ext):
@@ -283,6 +296,7 @@ class MarkersTab(QWidget):
         except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
+        settings.remember_export_path(path)
         self.status.emit(f"Exported {len(self._rows)} markers → {path}")
         QMessageBox.information(
             self, "Export complete",

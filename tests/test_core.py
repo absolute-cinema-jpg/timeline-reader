@@ -215,6 +215,27 @@ def test_ods_roundtrip():
         assert teletype.extractText(rows[2].getElementsByType(TableCell)[1]) == "wide’s"
 
 
+def test_settings_roundtrip():
+    from PySide6.QtCore import QSettings
+    d = tempfile.mkdtemp()
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, d)  # isolate from real prefs
+    from timeline_reader import settings as S
+    from timeline_reader.exporters import index_of_kind
+
+    S.set_export_format_kind("xlsx")
+    assert S.export_format_kind() == "xlsx"
+    assert index_of_kind(S.export_format_kind()) == 2
+
+    S.remember_open_path(os.path.join(d, "bin", "seq.avb"))  # dir must exist to be saved
+    os.makedirs(os.path.join(d, "bin"), exist_ok=True)
+    S.remember_open_path(os.path.join(d, "bin", "seq.avb"))
+    assert S.last_open_dir() == os.path.join(d, "bin")
+
+    S.set_caption_fps_index(4)
+    assert S.caption_fps_index() == 4
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

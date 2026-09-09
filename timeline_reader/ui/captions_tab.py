@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import settings
 from ..captions import CaptionDoc, parse_caption_file, to_srt
 from ..exporters import write_text
 from .widgets import DropZone, make_card, section_label
@@ -97,8 +98,9 @@ class CaptionsTab(QWidget):
         self.fps = QComboBox()
         for label, _, _ in _FPS_CHOICES:
             self.fps.addItem(label)
-        self.fps.setCurrentIndex(2)  # 25 PAL — matches the sample project
+        self.fps.setCurrentIndex(settings.caption_fps_index(2))  # default 25 PAL
         self.fps.currentIndexChanged.connect(self._reconvert)
+        self.fps.currentIndexChanged.connect(settings.set_caption_fps_index)
         row.addWidget(self.fps)
         row.addStretch(1)
         lay.addLayout(row)
@@ -189,7 +191,8 @@ class CaptionsTab(QWidget):
     def _export(self):
         if not self._srt:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export SRT", self._suggested_name(), "SubRip (*.srt)")
+        start = settings.export_start_path(self._suggested_name())
+        path, _ = QFileDialog.getSaveFileName(self, "Export SRT", start, "SubRip (*.srt)")
         if not path:
             return
         if not path.lower().endswith(".srt"):
@@ -199,6 +202,7 @@ class CaptionsTab(QWidget):
         except OSError as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
+        settings.remember_export_path(path)
         self.status.emit(f"Exported SRT → {path}")
         QMessageBox.information(self, "Export complete", f"Wrote subtitles to:\n{path}")
 

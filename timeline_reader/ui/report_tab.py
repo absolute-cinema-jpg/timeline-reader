@@ -24,7 +24,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..columns import ColumnSelection, Report
-from ..exporters import export_table, format_at, format_labels, rows_to_delimited
+from .. import settings
+from ..exporters import (
+    export_table,
+    format_at,
+    format_labels,
+    index_of_kind,
+    kind_at,
+    rows_to_delimited,
+)
 from ..models import Timeline
 from ..parsers import ParseError, parse_timeline
 from .column_dialog import ColumnDialog
@@ -196,6 +204,10 @@ class TimelineReportTab(QWidget):
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
         self.fmt.addItems(format_labels())
+        self.fmt.setCurrentIndex(index_of_kind(settings.export_format_kind()))
+        self.fmt.currentIndexChanged.connect(
+            lambda i: settings.set_export_format_kind(kind_at(i))
+        )
         bar.addWidget(self.fmt)
 
         self.copy_btn = QPushButton("Copy")
@@ -374,7 +386,8 @@ class TimelineReportTab(QWidget):
             return
         rows, is_selection = self._selected_or_all_rows()
         _label, ext, filt, kind = format_at(self.fmt.currentIndex())
-        path, _ = QFileDialog.getSaveFileName(self, "Export report", self._suggested_name(), filt)
+        start = settings.export_start_path(self._suggested_name())
+        path, _ = QFileDialog.getSaveFileName(self, "Export report", start, filt)
         if not path:
             return
         if not path.lower().endswith(ext):
@@ -384,6 +397,7 @@ class TimelineReportTab(QWidget):
         except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
+        settings.remember_export_path(path)
         what = f"{len(rows)} selected rows" if is_selection else f"{len(rows)} rows"
         self.status.emit(f"Exported {what} → {path}")
         QMessageBox.information(

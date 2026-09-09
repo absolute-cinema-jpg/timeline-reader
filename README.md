@@ -63,6 +63,12 @@ Each report can be **exported to CSV, TSV, Excel (`.xlsx`) or OpenDocument
 carry a bold, frozen header row (with an auto-filter in Excel). If a selection
 is active, only the selected rows are exported.
 
+### Remembered between sessions
+The app remembers, via `QSettings` (`timeline_reader/settings.py`): the folder
+you last **opened** a file from (the file picker reopens there), the folder you
+last **exported** to, your chosen **export format**, the caption **frame rate**,
+and your per-report **column selection and order**.
+
 ## Running from source
 
 ```bash
