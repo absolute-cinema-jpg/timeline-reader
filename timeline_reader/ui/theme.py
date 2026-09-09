@@ -7,7 +7,11 @@ a restrained blue accent and an amber highlight for effect/attention states.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QPalette
+import os
+import tempfile
+
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QApplication
 
 # --- palette tokens --------------------------------------------------------
@@ -22,6 +26,7 @@ TEXT_DIM = "#8a8a8a"
 TEXT_BRIGHT = "#f0f0f0"
 ACCENT = "#4a90d9"        # Resolve-ish blue
 ACCENT_HI = "#5fa3e6"
+MUTED_BLUE = "#4f7aa8"    # softer, desaturated blue for ticked checkboxes
 AMBER = "#e0952b"         # warning highlight
 # Accents sampled from the app icon (green button, blue identity columns).
 GREEN = "#54b876"         # action green (export)
@@ -30,6 +35,35 @@ IDENTITY = "#4c94de"      # # and Clip Name columns (icon blue)
 ROW_ALT = "#262626"
 HEADER_BG = "#2a2a2a"
 SELECT_BG = "#31506f"
+
+
+_CHECK_PATH: str | None = None
+
+
+def _checkmark_path() -> str:
+    """Path to a white checkmark PNG for ticked checkboxes.
+
+    QSS ``image:`` honours a real file path but not a ``data:`` URI, so we render
+    the tick once with QPainter and cache it. Drawn at 2x for a crisp downscale."""
+    global _CHECK_PATH
+    if _CHECK_PATH and os.path.exists(_CHECK_PATH):
+        return _CHECK_PATH
+    size = 30
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    pen = QPen(QColor("white"))
+    pen.setWidthF(3.4)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    p.setPen(pen)
+    p.drawPolyline(QPolygonF([QPointF(6.5, 15.5), QPointF(12.5, 21.5), QPointF(23.5, 8.5)]))
+    p.end()
+    path = os.path.join(tempfile.gettempdir(), "tlr_checkmark.png")
+    pm.save(path, "PNG")
+    _CHECK_PATH = path
+    return path
 
 
 def apply_theme(app: QApplication) -> None:
@@ -50,7 +84,8 @@ def apply_theme(app: QApplication) -> None:
     pal.setColor(QPalette.Disabled, QPalette.Text, QColor("#5a5a5a"))
     pal.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#5a5a5a"))
     app.setPalette(pal)
-    app.setStyleSheet(STYLESHEET)
+    check_url = _checkmark_path().replace("\\", "/")
+    app.setStyleSheet(STYLESHEET.replace("__CHECK_PATH__", check_url))
 
 
 STYLESHEET = f"""
@@ -162,7 +197,11 @@ QCheckBox::indicator {{
     width: 15px; height: 15px; border-radius: 3px;
     border: 1px solid {BORDER_HI}; background: {BG_INPUT};
 }}
-QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QCheckBox::indicator:hover {{ border-color: {MUTED_BLUE}; }}
+QCheckBox::indicator:checked {{
+    background: {MUTED_BLUE}; border-color: {MUTED_BLUE};
+    image: url("__CHECK_PATH__");
+}}
 
 /* ---- Tables ---- */
 QTableView {{

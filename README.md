@@ -26,18 +26,27 @@ tape/source name, source in/out and record in/out** timecodes plus duration.
 
 ### 3. Music Tracker
 A music cue sheet built from the sound tracks — one row per piece of music with
-**Reel, Track, Artist / Composer, Filename, TC In, TC Out, Duration**. You tick
-which sound tracks hold the music (move your music clips onto those tracks and
-clear everything else off them first); the report is built by **merging** the
-many segments an editor leaves behind — add edits, small nudges, and a cue
-checkerboarded across two tracks so it can overlap itself — back into a single
-cue. A cue ends only when it falls **silent longer than a set gap** (default one
-second) or when a **different piece of music interrupts** it. **Cross dissolves**
-on a cue's head/tail are included in its in/out by default (toggleable). The
-**Reel** is read from the hour field of the record TC In (a sequence starting at
-`01:00:00:00` is reel 1), and Artist / Composer comes from the clip's bin
-metadata (e.g. the `Lead performer(s)/Soloist(s)` field). Music cue merging lives
-in `timeline_reader/music.py`.
+**Reel, Track (the song name), Artist / Composer, Album, Filename, TC In, TC Out,
+Duration**. You tick which sound tracks hold the music (move your music clips onto
+those tracks and clear everything else off them first); the report is built by
+**merging** the many segments an editor leaves behind — add edits, small nudges,
+and a cue checkerboarded across two tracks so it can overlap itself — back into a
+single cue. A cue ends only when it falls **silent longer than a set gap**
+(default one second) or when a **different piece of music interrupts** it.
+**Cross dissolves** on a cue's head/tail are included in its in/out by default
+(toggleable).
+
+**Muted clips** (clips on a track muted in Avid's audio mixer — mute is stored
+per track, not per clip) are excluded by default; tick **Include muted clips** to
+keep them, which adds a **Muted** column flagging them.
+
+The **Reel** is read from the hour field of the record TC In (a sequence starting
+at `01:00:00:00` is reel 1); Track, Album and Artist / Composer come from the
+clip's bin metadata (the song title, album and `Lead performer(s)/Soloist(s)`
+fields). Like the other reports it has the same layout, selection-aware stats,
+row-selection export, **Choose columns…** chooser (with an optional Audio Track
+column) and drag-to-reorder headers. Music cue merging lives in
+`timeline_reader/music.py`.
 
 ### 4. Captions → SRT
 Converts an **Avid DS Caption (`.txt`)** file into a standard **SubRip (`.srt`)**

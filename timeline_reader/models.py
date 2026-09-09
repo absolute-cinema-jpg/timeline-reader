@@ -61,6 +61,7 @@ class Clip:
     meta: dict[str, str] = field(default_factory=dict)  # extra metadata columns
     head_transition: int = 0         # incoming dissolve length, frames (audio cues)
     tail_transition: int = 0         # outgoing dissolve length, frames (audio cues)
+    muted: bool = False              # clip sits on a muted (audio-mixer) track
 
     @property
     def duration(self) -> int:

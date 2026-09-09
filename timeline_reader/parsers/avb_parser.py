@@ -77,7 +77,7 @@ def parse(path: str, key: int | None = None) -> Timeline:
             track_name = f"A{getattr(tr, 'index', '?')}"
             seq = _inner_sequence(tr.component)
             if seq is not None:
-                _walk_audio_track(seq, track_name, fps, drop, tl)
+                _walk_audio_track(seq, track_name, fps, drop, tl, _track_muted(tr))
 
     if not tl.clips:
         tl.warnings.append("Sequence parsed but no clips were found on picture tracks.")
@@ -148,7 +148,24 @@ def _inner_sequence(comp):
     return None
 
 
-def _walk_audio_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> None:
+def _track_muted(tr) -> bool:
+    """Whether a sound track is muted in the audio mixer.
+
+    Media Composer records mute per *track* (the mixer's Mute button), not per
+    clip — there is no clip-level mute in the model — in the track's
+    ``AudioMixerCompMute`` attribute. A clip counts as muted when its track is."""
+    attrs = getattr(tr, "attributes", None)
+    if attrs is None or not hasattr(attrs, "get"):
+        return False
+    try:
+        return int(attrs.get("AudioMixerCompMute") or 0) != 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _walk_audio_track(
+    seq, track_name: str, fps: float, drop: bool, tl: Timeline, muted: bool = False
+) -> None:
     """Walk one sound track in record order, appending a :class:`Clip` per audio
     segment to ``tl.audio_clips`` (kept apart from picture ``clips`` so the other
     tabs are unaffected).
@@ -192,6 +209,7 @@ def _walk_audio_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline
             fps=fps,
             drop=drop,
             head_transition=pending_head,
+            muted=muted,
         )
         _resolve_source(src, clip, media_kind="sound")
         tl.audio_clips.append(clip)

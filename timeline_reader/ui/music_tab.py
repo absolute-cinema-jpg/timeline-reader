@@ -1,9 +1,10 @@
 """Music Tracker tab: merge a timeline's music into cues and export the table.
 
-Loads a timeline file (off the UI thread, like the other timeline tabs), lets the
-user pick which sound tracks hold the music, then lists one row per music cue —
-Reel, Track, Artist / Composer, Filename, TC In, TC Out, Duration — merging the
-add-edits, checkerboards and nudges that an editor leaves across a single cue.
+Same layout and shortcuts as the Opticals / Clip List tabs — a drop zone, an
+info card with selection-aware stats, a toolbar row with the sequence picker,
+column chooser and clear-selection, a sortable/reorderable table, and an action
+bar with format, copy and export — plus a music-options card for choosing which
+sound tracks hold the music and how cues are merged.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import music, settings
+from ..columns import ColumnSelection
 from ..exporters import (
     export_table,
     format_at,
@@ -39,6 +41,7 @@ from ..exporters import (
 )
 from ..models import Timeline
 from ..timecode import frames_to_duration
+from .column_dialog import ColumnDialog
 from .report_tab import TIMELINE_EXTS, _ParseWorker
 from .widgets import DropZone, ReportTable, make_card, section_label
 
@@ -48,9 +51,13 @@ class MusicTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._selection = ColumnSelection(music.REPORT_KEY).load()
         self._timeline: Timeline | None = None
         self._cues: list[music.MusicCue] = []
         self._rows: list[list[str]] = []
+        self._headers: list[str] = []
+        self._col_ids: list[str] = []
+        self._row_durations: list[int] = []
         self._worker: _ParseWorker | None = None
         self._path: str = ""
         self._suppress_switch = False
@@ -74,17 +81,31 @@ class MusicTab(QWidget):
         self.drop.setMinimumWidth(360)
         self.drop.setMaximumWidth(460)
         top.addWidget(self.drop)
-        top.addWidget(self._options_card(), 1)
+        top.addWidget(self._info_card(), 1)
         root.addLayout(top)
 
-        self.table = ReportTable()
-        self.table.set_data(music.HEADERS, [])
-        root.addWidget(self.table, 1)
+        root.addWidget(self._options_card())
 
+        self.table = ReportTable()
+        self.table.setToolTip(
+            "Exports every row by default. Select rows to export just those "
+            "(⌘/Shift-click for more); Esc or ⌘⇧A goes back to all."
+        )
+        self.table.set_data(music.HEADERS_HINT, [])
+        self.table.horizontalHeader().sectionMoved.connect(self._on_section_moved)
+
+        root.addLayout(self._toolbar())
+        root.addWidget(self.table, 1)
         root.addLayout(self._action_bar())
+
+        self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self._deselect_sc = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
+        self._deselect_sc.setContext(Qt.WidgetWithChildrenShortcut)
+        self._deselect_sc.activated.connect(self.table.clearSelection)
+
         self._update_actions()
 
-    def _options_card(self):
+    def _info_card(self):
         card = make_card()
         lay = QVBoxLayout(card)
         lay.setContentsMargins(18, 16, 18, 16)
@@ -103,20 +124,28 @@ class MusicTab(QWidget):
         self.seq_name.setObjectName("DropTitle")
         lay.addWidget(self.seq_name)
 
-        self.seq_row = QWidget()
-        seq_lay = QHBoxLayout(self.seq_row)
-        seq_lay.setContentsMargins(0, 0, 0, 0)
-        seq_lay.setSpacing(8)
-        seq_lay.addWidget(QLabel("Sequence:"))
-        self.seq_combo = QComboBox()
-        self.seq_combo.setMinimumWidth(240)
-        self.seq_combo.currentIndexChanged.connect(self._switch_sequence)
-        seq_lay.addWidget(self.seq_combo, 1)
-        self.seq_row.hide()
-        lay.addWidget(self.seq_row)
+        stats = QHBoxLayout()
+        stats.setSpacing(28)
+        self.stat_count = self._stat("—", "CUES")
+        self.stat_duration = self._stat("—", "DURATION")
+        stats.addLayout(self.stat_count[0])
+        stats.addLayout(self.stat_duration[0])
+        stats.addStretch(1)
+        lay.addLayout(stats)
 
-        opts = QHBoxLayout()
-        opts.setSpacing(18)
+        self.warn = QLabel("")
+        self.warn.setObjectName("WarnLabel")
+        self.warn.setWordWrap(True)
+        self.warn.hide()
+        lay.addWidget(self.warn)
+        lay.addStretch(1)
+        return card
+
+    def _options_card(self):
+        card = make_card()
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(22)
 
         tracks_box = QVBoxLayout()
         tracks_box.setSpacing(4)
@@ -125,17 +154,18 @@ class MusicTab(QWidget):
         self.track_list.setSelectionMode(QListWidget.NoSelection)
         self.track_list.setFlow(QListWidget.LeftToRight)
         self.track_list.setWrapping(True)
-        self.track_list.setFixedHeight(64)
+        self.track_list.setFixedHeight(60)
         self.track_list.itemChanged.connect(self._on_tracks_changed)
         tracks_box.addWidget(self.track_list)
         self.tracks_hint = QLabel("Load a timeline, then tick the tracks your music sits on")
         self.tracks_hint.setObjectName("Hint")
         self.tracks_hint.setWordWrap(True)
         tracks_box.addWidget(self.tracks_hint)
-        opts.addLayout(tracks_box, 1)
+        lay.addLayout(tracks_box, 1)
 
         controls = QVBoxLayout()
         controls.setSpacing(8)
+        controls.addWidget(section_label("Cue options"))
         gap_row = QHBoxLayout()
         gap_row.setSpacing(8)
         gap_row.addWidget(QLabel("End cue after gap:"))
@@ -155,25 +185,12 @@ class MusicTab(QWidget):
         self.dissolves.toggled.connect(self._on_option_changed)
         controls.addWidget(self.dissolves)
 
-        stats = QHBoxLayout()
-        stats.setSpacing(28)
-        self.stat_cues = self._stat("—", "CUES")
-        self.stat_duration = self._stat("—", "DURATION")
-        stats.addLayout(self.stat_cues[0])
-        stats.addLayout(self.stat_duration[0])
-        stats.addStretch(1)
-        controls.addLayout(stats)
+        self.muted_cb = QCheckBox("Include muted clips (adds a Muted column)")
+        self.muted_cb.setChecked(settings.music_include_muted())
+        self.muted_cb.toggled.connect(self._on_option_changed)
+        controls.addWidget(self.muted_cb)
         controls.addStretch(1)
-        opts.addLayout(controls, 1)
-
-        lay.addLayout(opts)
-
-        self.warn = QLabel("")
-        self.warn.setObjectName("WarnLabel")
-        self.warn.setWordWrap(True)
-        self.warn.hide()
-        lay.addWidget(self.warn)
-        lay.addStretch(1)
+        lay.addLayout(controls, 1)
         return card
 
     def _stat(self, value: str, label: str):
@@ -186,6 +203,33 @@ class MusicTab(QWidget):
         box.addWidget(v)
         box.addWidget(l)
         return box, v, l
+
+    def _toolbar(self):
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+
+        self.seq_row = QWidget()
+        seq_lay = QHBoxLayout(self.seq_row)
+        seq_lay.setContentsMargins(0, 0, 0, 0)
+        seq_lay.setSpacing(8)
+        seq_lay.addWidget(QLabel("Sequence:"))
+        self.seq_combo = QComboBox()
+        self.seq_combo.setMinimumWidth(240)
+        self.seq_combo.currentIndexChanged.connect(self._switch_sequence)
+        seq_lay.addWidget(self.seq_combo)
+        self.seq_row.hide()
+        bar.addWidget(self.seq_row)
+
+        self.columns_btn = QPushButton("Choose columns…")
+        self.columns_btn.clicked.connect(self._choose_columns)
+        bar.addWidget(self.columns_btn)
+
+        self.clear_sel_btn = QPushButton("Clear selection")
+        self.clear_sel_btn.clicked.connect(self.table.clearSelection)
+        bar.addWidget(self.clear_sel_btn)
+
+        bar.addStretch(1)
+        return bar
 
     def _action_bar(self):
         bar = QHBoxLayout()
@@ -302,19 +346,26 @@ class MusicTab(QWidget):
     def _on_option_changed(self, *_):
         settings.set_music_gap_seconds(self.gap.value())
         settings.set_music_include_dissolves(self.dissolves.isChecked())
+        settings.set_music_include_muted(self.muted_cb.isChecked())
         self._recompute()
 
+    # ---- report build -----------------------------------------------------
     def _recompute(self):
         if self._timeline is None:
             return
         tracks = self._checked_tracks()
-        self._cues, self._rows = music.build_rows(
+        self._cues, cols, self._rows = music.build_rows(
             self._timeline,
             tracks,
+            self._selection,
             gap_seconds=self.gap.value(),
             include_dissolves=self.dissolves.isChecked(),
+            include_muted=self.muted_cb.isChecked(),
         )
-        self.table.set_data(music.HEADERS, self._rows)
+        self._col_ids = [c.id for c in cols]
+        self._headers = [c.label for c in cols]
+        self._row_durations = [cue.duration for cue in self._cues]
+        self.table.set_data(self._headers, self._rows)
         self._update_stats()
 
         warnings = list(self._timeline.warnings)
@@ -334,14 +385,54 @@ class MusicTab(QWidget):
         )
         self._update_actions()
 
+    def _choose_columns(self):
+        if self._timeline is None:
+            return
+        cols = music.all_columns(self.muted_cb.isChecked())
+        dlg = ColumnDialog(cols, self._selection, self)
+        if dlg.exec():
+            self._recompute()
+
+    def _on_section_moved(self, logical: int, old_visual: int, new_visual: int):
+        """User dragged a table header: persist the new order and rebuild so the
+        model, export and saved order all agree (the header resets to identity)."""
+        if not self._col_ids or self._timeline is None:
+            return
+        header = self.table.horizontalHeader()
+        n = len(self._col_ids)
+        visible_order = [self._col_ids[header.logicalIndex(v)] for v in range(n)]
+        hidden = [cid for cid in self._selection.order if cid not in visible_order]
+        self._selection.set_order(visible_order + hidden)
+        self._selection.save()
+        self._recompute()
+        self.status.emit("Columns reordered")
+
+    # ---- selection / stats ------------------------------------------------
+    def _update_actions(self):
+        has = bool(self._rows)
+        self.export_btn.setEnabled(has)
+        self.copy_btn.setEnabled(has)
+        self.columns_btn.setEnabled(self._timeline is not None)
+        self._on_selection_changed()
+
+    def _on_selection_changed(self, *_):
+        n = len(self.table.selected_rows()) if self._rows else 0
+        self.export_btn.setText(f"Export {n} selected…" if n else "Export all…")
+        self.clear_sel_btn.setEnabled(n > 0)
+        self._update_stats()
+
     def _update_stats(self):
-        if not self._cues:
-            self.stat_cues[1].setText("—")
+        if not self._rows:
+            self.stat_count[1].setText("—")
+            self.stat_count[2].setText("CUES")
             self.stat_duration[1].setText("—")
             return
+        sel = self.table.selected_rows()
+        idxs = sel if sel else range(len(self._rows))
+        total = sum(self._row_durations[i] for i in idxs if i < len(self._row_durations))
         fps = self._timeline.fps if self._timeline else 25.0
-        total = sum(c.duration for c in self._cues)
-        self.stat_cues[1].setText(str(len(self._cues)))
+        self.stat_count[1].setText(str(len(sel) if sel else len(self._rows)))
+        self.stat_count[2].setText("SELECTED" if sel else "CUES")
         self.stat_duration[1].setText(frames_to_duration(total, fps))
 
     def _on_failed(self, message: str):
@@ -354,7 +445,8 @@ class MusicTab(QWidget):
         self._timeline = None
         self._path = ""
         self._cues, self._rows = [], []
-        self.table.set_data(music.HEADERS, [])
+        self._headers, self._col_ids, self._row_durations = [], [], []
+        self.table.set_data(music.HEADERS_HINT, [])
         self._suppress_recompute = True
         self.track_list.clear()
         self._suppress_recompute = False
@@ -362,16 +454,10 @@ class MusicTab(QWidget):
         self.seq_row.hide()
         self.seq_name.setText("No file loaded")
         self.tracks_hint.setText("Load a timeline, then tick the tracks your music sits on")
-        for _, v, _l in (self.stat_cues, self.stat_duration):
-            v.setText("—")
+        self._update_stats()
         self.warn.hide()
         self.row_count.setText("Load a timeline to build the music tracker")
         self._update_actions()
-
-    def _update_actions(self):
-        has = bool(self._rows)
-        self.export_btn.setEnabled(has)
-        self.copy_btn.setEnabled(has)
 
     # ---- output -----------------------------------------------------------
     def _base_name(self) -> str:
@@ -383,9 +469,16 @@ class MusicTab(QWidget):
         _label, ext, _filt, _kind = format_at(self.fmt.currentIndex())
         return f"{self._base_name()}_music{ext}"
 
+    def _selected_or_all_rows(self):
+        sel = self.table.selected_rows()
+        if sel:
+            return [self._rows[i] for i in sel], True
+        return self._rows, False
+
     def _export(self):
         if not self._rows:
             return
+        rows, is_selection = self._selected_or_all_rows()
         _label, ext, filt, kind = format_at(self.fmt.currentIndex())
         input_dir = os.path.dirname(os.path.abspath(self._path)) if self._path else ""
         start = settings.export_start_path(self._suggested_name(), input_dir)
@@ -396,22 +489,24 @@ class MusicTab(QWidget):
             path += ext
         try:
             export_table(
-                path, list(music.HEADERS), self._rows, kind,
+                path, self._headers, rows, kind,
                 sheet_name=f"{self._base_name()} music",
             )
         except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
         settings.remember_export_path(path)
-        self.status.emit(f"Exported {len(self._rows)} cues → {path}")
+        what = f"{len(rows)} selected cues" if is_selection else f"{len(rows)} cues"
+        self.status.emit(f"Exported {what} → {path}")
         QMessageBox.information(
-            self, "Export complete",
-            f"Wrote {len(self._rows)} music cues to:\n{path}",
+            self, "Export complete", f"Wrote {what} to:\n{path}",
         )
 
     def _copy(self):
         if not self._rows:
             return
-        text = rows_to_delimited(music.HEADERS, self._rows, "\t")
+        rows, is_selection = self._selected_or_all_rows()
+        text = rows_to_delimited(self._headers, rows, "\t")
         QApplication.clipboard().setText(text)
-        self.status.emit("Copied music tracker to clipboard (tab-separated)")
+        what = f"{len(rows)} selected cues" if is_selection else "table"
+        self.status.emit(f"Copied {what} to clipboard (tab-separated)")

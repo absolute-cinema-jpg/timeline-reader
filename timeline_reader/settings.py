@@ -113,6 +113,14 @@ def set_music_include_dissolves(on: bool) -> None:
     _store().setValue("music/include_dissolves", bool(on))
 
 
+def music_include_muted(default: bool = False) -> bool:
+    return _store().value("music/include_muted", default, type=bool)
+
+
+def set_music_include_muted(on: bool) -> None:
+    _store().setValue("music/include_muted", bool(on))
+
+
 def music_tracks() -> list[str]:
     """Track names last used as music tracks (re-applied to a new file where they
     exist), stored as a comma-separated string."""

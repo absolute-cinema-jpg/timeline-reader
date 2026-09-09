@@ -240,11 +240,18 @@ def test_settings_roundtrip():
 # --------------------------------------------------------------------------- #
 # Music Tracker
 # --------------------------------------------------------------------------- #
-def _music_clip(track, name, rs, re, *, head=0, tail=0, artist=""):
-    meta = {"Lead performer(s)/Soloist(s)": artist} if artist else {}
+def _music_clip(track, name, rs, re, *, head=0, tail=0, artist="", title="",
+                album="", muted=False):
+    meta = {}
+    if artist:
+        meta["Lead performer(s)/Soloist(s)"] = artist
+    if title:
+        meta["Title/songname/content descripti"] = title
+    if album:
+        meta["Album/Movie/Show title"] = album
     return Clip(index=0, track=track, clip_name=name, tape_name=f"{name}.wav",
                 rec_start=rs, rec_end=re, fps=25.0,
-                head_transition=head, tail_transition=tail, meta=meta)
+                head_transition=head, tail_transition=tail, muted=muted, meta=meta)
 
 
 def _music_timeline(clips, start_tc=0) -> Timeline:
@@ -307,13 +314,57 @@ def test_music_track_filtering():
 
 def test_music_reel_from_hour():
     from timeline_reader import music
+    from timeline_reader.timecode import frames_to_tc
     start = Timecode.from_string("01:00:00:00", 25.0).frames  # reel 1
     tl = _music_timeline([_music_clip("A5", "song1", 4592, 5000, artist="Anil")],
                          start_tc=start)
     cue = music.build_cues(tl, {"A5"})[0]
     assert cue.reel() == "1"
-    assert cue.row()[4] == "01:03:03:17"  # TC In = start + rec_start
+    assert frames_to_tc(cue.rec_in, cue.fps) == "01:03:03:17"  # start + rec_start
     assert cue.artist == "Anil"
+
+
+def test_music_columns_track_is_song_title_and_album():
+    """The Track column is the song name (title metadata), Filename is the file,
+    and an Album column carries the album."""
+    from timeline_reader import music
+    from timeline_reader.columns import ColumnSelection
+    tl = _music_timeline([
+        _music_clip("A5", "01-Kashmiri", 0, 100, artist="Anil",
+                    title="Kashmiri", album="Kashmiri Dhol"),
+    ])
+    sel = ColumnSelection(music.REPORT_KEY)  # defaults
+    cues, cols, rows = music.build_rows(tl, {"A5"}, sel)
+    headers = [c.label for c in cols]
+    assert headers == ["Reel", "Track", "Artist / Composer", "Album",
+                       "Filename", "TC In", "TC Out", "Duration"]
+    row = dict(zip(headers, rows[0]))
+    assert row["Track"] == "Kashmiri"            # song name, not the audio track
+    assert row["Album"] == "Kashmiri Dhol"
+    assert row["Filename"] == "01-Kashmiri.wav"  # the media file
+    assert row["Artist / Composer"] == "Anil"
+
+
+def test_music_muted_excluded_by_default():
+    from timeline_reader import music
+    from timeline_reader.columns import ColumnSelection
+    tl = _music_timeline([
+        _music_clip("A5", "song1", 0, 100),
+        _music_clip("A6", "song2", 200, 300, muted=True),  # on a muted track
+    ])
+    # Default: muted clips dropped, no Muted column.
+    cues = music.build_cues(tl, {"A5", "A6"})
+    assert [c.song for c in cues] == ["song1"]
+
+    # Included: the muted cue appears and is flagged in a Muted column.
+    sel = ColumnSelection(music.REPORT_KEY)
+    cues, cols, rows = music.build_rows(tl, {"A5", "A6"}, sel, include_muted=True)
+    assert "Muted" in [c.label for c in cols]
+    by_song = {c.song: c for c in cues}
+    assert by_song["song2"].muted is True and by_song["song1"].muted is False
+    muted_col = [c.label for c in cols].index("Muted")
+    song2_row = rows[[c.song for c in cues].index("song2")]
+    assert song2_row[muted_col] == "Muted"
 
 
 def test_music_dissolve_inclusion():
@@ -344,8 +395,11 @@ def test_music_from_sample_bin():
     # The Kashmiri cue opens the reel and is checkerboarded across A15 + A16.
     first = cues[0]
     assert first.song == "01-Kashmiri"
-    assert first.tracks == ["A15", "A16"]
+    assert first.title == "Kashmiri"          # Track column = song name
+    assert first.album == "Kashmiri Dhol"
+    assert first.tracks == ["A15", "A16"]      # kept for the optional Audio Track col
     assert first.artist == "Anil"
+    assert first.muted is False                # nothing muted in the sample bin
     # A song reused far later in the timeline splits into separate cues.
     dimensions = [c for c in cues if c.song == "13-Dimensions"]
     assert len(dimensions) >= 2

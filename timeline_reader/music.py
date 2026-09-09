@@ -18,20 +18,27 @@ them beforehand), this module:
   user-set gap (default one second), or when a different piece of music
   interrupts it.
 
-The reel is read from the hour field of the cue's record in-point (a sequence
-that starts at 01:00:00:00 is reel 1), which is why the parser carries the
-sequence's start timecode.
+Muted clips (clips on a track muted in the audio mixer — Avid records mute per
+track, not per clip) are dropped by default; they can be kept, and then a Muted
+column flags them.
+
+Columns are configurable exactly like the Opticals / Clip List reports, via the
+shared :class:`~timeline_reader.columns.ColumnSelection`. The reel is read from
+the hour field of the cue's record in-point (a sequence that starts at
+01:00:00:00 is reel 1), which is why the parser carries the sequence's start
+timecode.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .columns import ColumnDef, ColumnSelection
 from .models import Clip, Timeline
 from .timecode import frames_to_duration, frames_to_tc
 
-# Bin metadata keys that carry the artist / composer, best first. Avid truncates
-# some ID3-derived column names (e.g. the description field), so match leniently.
+# Bin metadata keys, best first. Avid truncates some ID3-derived column names
+# (e.g. the description field), so these match the real, truncated keys.
 _ARTIST_KEYS = (
     "Lead performer(s)/Soloist(s)",
     "Composer",
@@ -39,9 +46,17 @@ _ARTIST_KEYS = (
     "Band/Orchestra/Accompaniment",
     "Original artist(s)/performer(s)",
 )
+_TITLE_KEYS = (
+    "Title/songname/content descripti",
+    "Title",
+    "Song",
+)
+_ALBUM_KEYS = (
+    "Album/Movie/Show title",
+    "Album",
+)
 
-HEADERS = ["Reel", "Track", "Artist / Composer", "Filename", "TC In", "TC Out", "Duration"]
-
+REPORT_KEY = "music"
 DEFAULT_GAP_SECONDS = 1.0
 
 
@@ -49,12 +64,15 @@ DEFAULT_GAP_SECONDS = 1.0
 class MusicCue:
     """One merged music cue, spanning one or more segments and tracks."""
 
-    song: str                        # identity (Avid clip / master name)
-    filename: str                    # media file name (with extension where known)
+    song: str                        # merge identity (Avid clip / master name)
+    title: str                       # song name (the "Track" column)
+    album: str
     artist: str
-    tracks: list[str]                # every track the cue touches, in order
+    filename: str                    # media file name (with extension where known)
+    tracks: list[str]                # every audio track the cue touches, in order
     rec_in: int                      # absolute record in, frames (incl. start TC)
     rec_out: int                     # absolute record out, frames
+    muted: bool = False              # every segment of the cue is on a muted track
     fps: float = 25.0
     drop: bool = False
 
@@ -70,20 +88,59 @@ class MusicCue:
         except ValueError:
             return ""
 
-    def row(self) -> list[str]:
-        return [
-            self.reel(),
-            ", ".join(self.tracks),
-            self.artist,
-            self.filename,
-            frames_to_tc(self.rec_in, self.fps, self.drop),
-            frames_to_tc(self.rec_out, self.fps, self.drop),
-            frames_to_duration(self.duration, self.fps),
-        ]
+
+# --------------------------------------------------------------------------- #
+# Columns (configurable, persisted — shares ColumnSelection with the reports)
+# --------------------------------------------------------------------------- #
+def _columns(include_muted: bool) -> list[ColumnDef]:
+    cols = [
+        ColumnDef("reel", "Reel", "Core", True, lambda c: c.reel()),
+        ColumnDef("track", "Track", "Core", True, lambda c: c.title),
+        ColumnDef("artist", "Artist / Composer", "Core", True, lambda c: c.artist),
+        ColumnDef("album", "Album", "Core", True, lambda c: c.album),
+        ColumnDef("filename", "Filename", "Core", True, lambda c: c.filename),
+        ColumnDef("tc_in", "TC In", "Timecode", True,
+                  lambda c: frames_to_tc(c.rec_in, c.fps, c.drop)),
+        ColumnDef("tc_out", "TC Out", "Timecode", True,
+                  lambda c: frames_to_tc(c.rec_out, c.fps, c.drop)),
+        ColumnDef("duration", "Duration", "Timecode", True,
+                  lambda c: frames_to_duration(c.duration, c.fps)),
+        ColumnDef("audio_track", "Audio Track", "Extra", False,
+                  lambda c: ", ".join(c.tracks)),
+    ]
+    if include_muted:
+        # Only offered (and defaulted on) when muted clips are being included.
+        cols.append(
+            ColumnDef("muted", "Muted", "Core", True, lambda c: "Muted" if c.muted else "")
+        )
+    return cols
 
 
-def _artist_of(clip: Clip) -> str:
-    for key in _ARTIST_KEYS:
+def all_columns(include_muted: bool = False) -> list[ColumnDef]:
+    """Every column the Music Tracker can show (for the column chooser)."""
+    return _columns(include_muted)
+
+
+# Default column labels, shown as the empty table's header row before a load.
+HEADERS_HINT = [c.label for c in _columns(False) if c.default]
+
+
+def render(
+    cues: list["MusicCue"], selection: ColumnSelection, include_muted: bool = False
+) -> tuple[list[ColumnDef], list[list[str]]]:
+    """Ordered, included column defs plus the data rows for a list of cues."""
+    cols = selection.ordered(
+        [c for c in _columns(include_muted) if selection.effective(c)]
+    )
+    rows = [[col.getter(cue) for col in cols] for cue in cues]
+    return cols, rows
+
+
+# --------------------------------------------------------------------------- #
+# Cue building
+# --------------------------------------------------------------------------- #
+def _meta_of(clip: Clip, keys) -> str:
+    for key in keys:
         val = clip.meta.get(key, "").strip()
         if val:
             return val
@@ -123,21 +180,27 @@ def build_cues(
     tracks,
     gap_seconds: float = DEFAULT_GAP_SECONDS,
     include_dissolves: bool = True,
+    include_muted: bool = False,
 ) -> list[MusicCue]:
     """Merge the audio segments on the chosen *tracks* into music cues.
 
     *tracks* is the set/list of track names (e.g. ``{"A5", "A6"}``) the user has
     designated as music. Segments are merged across every chosen track at once,
-    so a cue checkerboarded over two tracks stays a single cue.
+    so a cue checkerboarded over two tracks stays a single cue. Muted clips are
+    dropped unless *include_muted*; a cue is flagged muted only when every one of
+    its segments is muted.
     """
     chosen = set(tracks)
     gap = max(0, round(gap_seconds * tl.fps))
 
-    segs = [
-        (clip, *_segment_bounds(clip, include_dissolves))
-        for clip in tl.audio_clips
-        if clip.track in chosen
-    ]
+    segs = []
+    for clip in tl.audio_clips:
+        if clip.track not in chosen:
+            continue
+        if clip.muted and not include_muted:
+            continue
+        s_in, s_out = _segment_bounds(clip, include_dissolves)
+        segs.append((clip, s_in, s_out))
     # Record order; ties broken by track so a deterministic segment opens a cue.
     segs.sort(key=lambda s: (s[1], _track_index(s[0].track)))
 
@@ -151,16 +214,22 @@ def build_cues(
             cur.rec_out = max(cur.rec_out, s_out)
             if clip.track not in cur.tracks:
                 cur.tracks.append(clip.track)
+            cur.muted = cur.muted and clip.muted  # muted only if all segments are
             if not cur.artist:
-                cur.artist = _artist_of(clip)
+                cur.artist = _meta_of(clip, _ARTIST_KEYS)
+            if not cur.album:
+                cur.album = _meta_of(clip, _ALBUM_KEYS)
         else:
             cur = MusicCue(
                 song=ident,
+                title=_meta_of(clip, _TITLE_KEYS) or ident,
+                album=_meta_of(clip, _ALBUM_KEYS),
+                artist=_meta_of(clip, _ARTIST_KEYS),
                 filename=clip.tape_name or clip.clip_name,
-                artist=_artist_of(clip),
                 tracks=[clip.track],
                 rec_in=tl.start_tc + s_in,
                 rec_out=tl.start_tc + s_out,
+                muted=clip.muted,
                 fps=tl.fps,
                 drop=tl.drop,
             )
@@ -175,9 +244,13 @@ def build_cues(
 def build_rows(
     tl: Timeline,
     tracks,
+    selection: ColumnSelection,
     gap_seconds: float = DEFAULT_GAP_SECONDS,
     include_dissolves: bool = True,
-) -> tuple[list[MusicCue], list[list[str]]]:
-    """Cues plus their table rows (the tab needs the cues for per-row durations)."""
-    cues = build_cues(tl, tracks, gap_seconds, include_dissolves)
-    return cues, [c.row() for c in cues]
+    include_muted: bool = False,
+) -> tuple[list[MusicCue], list[ColumnDef], list[list[str]]]:
+    """Cues, the ordered column defs, and the data rows — everything the tab needs
+    (the cues carry per-row durations for the selection-aware stats)."""
+    cues = build_cues(tl, tracks, gap_seconds, include_dissolves, include_muted)
+    cols, rows = render(cues, selection, include_muted)
+    return cues, cols, rows
