@@ -180,7 +180,7 @@ class MusicTab(QWidget):
         gap_row.addStretch(1)
         controls.addLayout(gap_row)
 
-        self.dissolves = QCheckBox("Include cross dissolves in TC in / out")
+        self.dissolves = QCheckBox("Include cross dissolves")
         self.dissolves.setChecked(settings.music_include_dissolves())
         self.dissolves.toggled.connect(self._on_option_changed)
         controls.addWidget(self.dissolves)
