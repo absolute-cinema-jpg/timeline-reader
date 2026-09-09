@@ -65,10 +65,12 @@ def parse(path: str, key: int | None = None) -> Timeline:
             if not isinstance(seq, Sequence):
                 continue
             _walk_track(seq, track_name, fps, drop, tl)
+            _collect_track_markers(seq, track_name, tl)
 
     if not tl.clips:
         tl.warnings.append("Sequence parsed but no clips were found on picture tracks.")
     tl.sorted_by_record()
+    tl.markers.sort(key=lambda m: (m.position, m.track))
     return tl
 
 
@@ -304,8 +306,10 @@ def _collect_markers(node, clip: Clip, seen: set | None = None, depth: int = 0) 
     seen.add(id(node))
 
     attrs = getattr(node, "attributes", None)
-    if attrs is not None and hasattr(attrs, "items"):
-        for value in attrs.values():
+    if attrs is not None and hasattr(attrs, "keys"):
+        # get(key) resolves object refs that .values() would leave unresolved.
+        for key in list(attrs.keys()):
+            value = attrs.get(key)
             for item in (value if isinstance(value, list) else [value]):
                 if isinstance(item, Marker):
                     comment = _marker_comment(item)
@@ -319,6 +323,123 @@ def _collect_markers(node, clip: Clip, seen: set | None = None, depth: int = 0) 
     if isinstance(node, Sequence):
         for sub in node.components:
             _collect_markers(sub, clip, seen, depth + 1)
+
+
+def _collect_track_markers(seq, track_name: str, tl: Timeline) -> None:
+    """Walk one picture track in record order, collecting full timeline markers.
+
+    Positions accumulate exactly as in :func:`_walk_track` so a marker's record
+    position matches the clip it sits on. A marker's ``comp_offset`` is its frame
+    offset within the component it is attached to, so absolute position is the
+    component's record start plus that offset.
+    """
+    from avb.misc import Marker
+
+    seen: set[int] = set()
+    # Locators attached to the track's top-level sequence carry an absolute offset.
+    _gather_markers(seq, track_name, 0, tl, seen, Marker, top=True)
+
+    pos = 0
+    for comp in seq.components:
+        length = int(getattr(comp, "length", 0) or 0)
+        if type(comp).__name__ == "TransitionEffect":
+            pos -= length
+            continue
+        _gather_markers(comp, track_name, pos, tl, seen, Marker)
+        pos += length
+
+
+def _gather_markers(
+    node, track_name: str, base: int, tl: Timeline, seen: set, marker_cls,
+    depth: int = 0, top: bool = False,
+) -> None:
+    """Find :class:`Marker` objects in ``node``'s attributes (and nested tracks),
+    appending a :class:`models.Marker` per unique locator at ``base + comp_offset``."""
+    if node is None or depth > 12:
+        return
+    attrs = getattr(node, "attributes", None)
+    if attrs is not None and hasattr(attrs, "keys"):
+        # ``attrs.values()`` yields *unresolved* object refs; ``get(key)``
+        # dereferences to the real value (e.g. a TimeCrumbList of markers).
+        for key in list(attrs.keys()):
+            value = attrs.get(key)
+            for item in (value if isinstance(value, list) else [value]):
+                if isinstance(item, marker_cls) and id(item) not in seen:
+                    seen.add(id(item))
+                    tl.markers.append(_make_marker(item, track_name, base))
+
+    if top:
+        return  # top pass only scans the sequence's own attributes
+    pd = getattr(node, "property_data", {})
+    for tr in pd.get("tracks", []) or []:
+        _gather_markers(
+            getattr(tr, "component", None), track_name, base, tl, seen, marker_cls, depth + 1
+        )
+    if isinstance(node, Sequence):
+        for sub in node.components:
+            _gather_markers(sub, track_name, base, tl, seen, marker_cls, depth + 1)
+
+
+def _make_marker(marker, track_name: str, base: int):
+    from ..models import Marker as ModelMarker
+
+    offset = int(getattr(marker, "comp_offset", 0) or 0)
+    attrs = getattr(marker, "attributes", None)
+    return ModelMarker(
+        position=base + offset,
+        track=track_name,
+        comment=_marker_comment(marker),
+        colour=_marker_colour(marker),
+        user=_marker_attr(attrs, ("_ATN_CRM_USER", "_ATN_CRM_LONG_CRM_USER", "User", "user")),
+        date=_marker_attr(attrs, ("_ATN_CRM_DATE", "_ATN_CRM_LONG_CRM_DATE", "Date", "date")),
+        length=_marker_int(attrs, ("_ATN_CRM_LENGTH", "_ATN_CRM_MARKER_LENGTH", "length")),
+    )
+
+
+def _marker_attr(attrs, keys) -> str:
+    if attrs is None or not hasattr(attrs, "get"):
+        return ""
+    for key in keys:
+        val = _clean(attrs.get(key))
+        if val:
+            return val
+    return ""
+
+
+def _marker_int(attrs, keys) -> int:
+    raw = _marker_attr(attrs, keys)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _marker_colour(marker) -> str:
+    """Colour name for a marker.
+
+    Avid records the locator's palette colour by name (e.g. "Red") in the
+    ``_ATN_CRM_COLOR`` attribute — authoritative, so prefer it. Only if no name
+    is present do we approximate from the 16-bit RGB triple.
+    """
+    name = _marker_attr(
+        getattr(marker, "attributes", None),
+        ("_ATN_CRM_COLOR", "_ATN_CRM_COLOR_EXTENDED", "Color", "colour"),
+    )
+    if name:
+        return name
+    rgb = getattr(marker, "color", None)
+    if isinstance(rgb, (list, tuple)) and len(rgb) >= 3:
+        try:
+            r, g, b = (int(rgb[i]) >> 8 for i in range(3))
+        except (TypeError, ValueError):
+            return ""
+        name, dist = min(
+            ((n, (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2)
+             for n, (cr, cg, cb) in _COLOUR_NAMES),
+            key=lambda x: x[1],
+        )
+        return name if dist <= 6000 else f"#{r:02X}{g:02X}{b:02X}"
+    return ""
 
 
 def _next_in_chain(mob, track_id):

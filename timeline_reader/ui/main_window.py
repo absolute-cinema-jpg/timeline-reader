@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from .. import __app_name__, __version__
 from ..columns import CLIPLIST_REPORT, OPTICALS_REPORT
 from .captions_tab import CaptionsTab
+from .markers_tab import MarkersTab
 from .report_tab import TimelineReportTab
 
 
@@ -49,13 +50,15 @@ class MainWindow(QMainWindow):
             export_basename="cliplist",
             empty_hint="Load a timeline to build the clip list",
         )
+        self.markers = MarkersTab()
         self.captions = CaptionsTab()
 
-        for tab in (self.opticals, self.cliplist, self.captions):
+        for tab in (self.opticals, self.cliplist, self.markers, self.captions):
             tab.status.connect(self._status)
 
         self.tabs.addTab(self.opticals, "  Opticals List  ")
         self.tabs.addTab(self.cliplist, "  Clip List  ")
+        self.tabs.addTab(self.markers, "  Markers  ")
         self.tabs.addTab(self.captions, "  Captions → SRT  ")
         outer.addWidget(self.tabs, 1)
 

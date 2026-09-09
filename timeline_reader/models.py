@@ -31,6 +31,19 @@ class Effect:
 
 
 @dataclass
+class Marker:
+    """A timeline locator (marker) placed on a track at a record position."""
+
+    position: int                    # absolute record position, frames
+    track: str = ""                  # "V1", "A1", ...
+    comment: str = ""                # locator comment text
+    colour: str = ""                 # nearest Avid colour name (e.g. "Red")
+    user: str = ""                   # who created it, if recorded
+    date: str = ""                   # creation date, if recorded
+    length: int = 0                  # marker span in frames (0 = point marker)
+
+
+@dataclass
 class Clip:
     """One clip event on the timeline (a segment on a single track)."""
 
@@ -60,6 +73,7 @@ class Timeline:
     fps: float = 25.0
     drop: bool = False
     clips: list[Clip] = field(default_factory=list)
+    markers: list[Marker] = field(default_factory=list)
     source_path: str = ""
     source_format: str = ""          # "Avid Bin", "EDL", "AAF", "Tab-delimited"
     warnings: list[str] = field(default_factory=list)

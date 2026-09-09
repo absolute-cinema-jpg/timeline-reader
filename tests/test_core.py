@@ -96,12 +96,85 @@ def test_column_reorder():
     tl = _demo_timeline()
     sel = ColumnSelection(CLIPLIST_REPORT.key)
     sel.set(META_PREFIX + "Take", True)
-    # Move Track and Take to the front; the rest keep canonical order after.
+    # Try to move Track and Take ahead of the "#" column; "#" is pinned first
+    # regardless, then the listed columns, then the canonical remainder.
     sel.set_order(["track", META_PREFIX + "Take", "index"])
     headers, rows = CLIPLIST_REPORT.build(tl, sel)
-    assert headers[:3] == ["Track", "Take", "#"]
+    assert headers[:3] == ["#", "Track", "Take"]
     assert headers[3] == "Clip Name"  # unlisted columns stay in canonical order
-    assert rows[0][:3] == ["V1", "3", "1"]
+    assert rows[0][:3] == ["1", "V1", "3"]
+
+
+def test_marker_extraction():
+    """Marker collection resolves absolute position, colour and attributes, and
+    de-duplicates locators reached more than once during the track walk.
+
+    Real Avid marker objects aren't in the sample bins, so this exercises the
+    extraction with stand-in objects shaped like ``avb.misc.Marker``.
+    """
+    from timeline_reader.parsers import avb_parser as A
+
+    class FakeMarker:
+        def __init__(self, comp_offset, color, attrs):
+            self.comp_offset = comp_offset
+            self.color = color
+            self.attributes = attrs
+
+    class Node:
+        property_data: dict = {}
+
+        def __init__(self, attributes):
+            self.attributes = attributes
+
+    red = FakeMarker(
+        12,
+        [90 << 8, 190 << 8, 85 << 8],  # RGB says "Green"...
+        {
+            "_ATN_CRM_COM": "VFX shot",
+            "_ATN_CRM_USER": "alex",
+            "_ATN_CRM_COLOR": "Red",  # ...but the named colour is authoritative
+            "_ATN_CRM_LENGTH": 5,
+        },
+    )
+    seg = Node({"mark": red})
+    tl = Timeline(fps=25.0)
+    seen: set = set()
+    # Segment starts at record frame 100; marker offset 12 -> absolute 112.
+    A._gather_markers(seg, "V1", 100, tl, seen, FakeMarker)
+    A._gather_markers(seg, "V1", 100, tl, seen, FakeMarker)  # second pass: no dupes
+
+    assert len(tl.markers) == 1
+    m = tl.markers[0]
+    assert m.position == 112
+    assert m.track == "V1"
+    assert m.colour == "Red"  # attribute name wins over the RGB triple
+    assert m.comment == "VFX shot"
+    assert m.user == "alex"
+    assert m.length == 5
+
+
+def test_marker_extraction_from_sample_bin():
+    """End-to-end against the real sample bin's 'markers' sequence, when present.
+
+    The bin lives under the gitignored ``test files/``; skip cleanly if absent.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "test files", "bin", "timeline-reader test.avb",
+    )
+    if not os.path.exists(path):
+        return
+    from timeline_reader.parsers import parse_timeline
+    from timeline_reader.parsers.avb_parser import sequences
+
+    key = next(o.key for o in sequences(path) if o.name == "markers")
+    tl = parse_timeline(path, key)
+    got = {(m.comment, m.colour, m.track) for m in tl.markers}
+    assert ("drama 1", "Red", "V1") in got
+    assert ("opticals 1", "Cyan", "V3") in got
+    assert ("vfx 1", "White", "V4") in got
+    assert len(tl.markers) == 7
+    assert all(m.user and m.date for m in tl.markers)
 
 
 if __name__ == "__main__":
