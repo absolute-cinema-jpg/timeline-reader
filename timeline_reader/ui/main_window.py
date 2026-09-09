@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from .. import __app_name__, __version__
 from ..columns import CLIPLIST_REPORT, OPTICALS_REPORT
+from .assets import icon_path
 from .captions_tab import CaptionsTab
 from .markers_tab import MarkersTab
 from .report_tab import TimelineReportTab
@@ -73,8 +75,21 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(20, 0, 20, 0)
         lay.setSpacing(12)
 
-        logo = QLabel("◈")
-        logo.setStyleSheet("color:#4a90d9; font-size:22px;")
+        logo = QLabel()
+        path = icon_path()
+        pix = QPixmap(path) if path else QPixmap()
+        if not pix.isNull():
+            logo.setPixmap(
+                pix.scaled(
+                    32,
+                    32,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+        else:
+            logo.setText("◈")
+            logo.setStyleSheet("color:#4a90d9; font-size:22px;")
         lay.addWidget(logo)
 
         title_box = QVBoxLayout()

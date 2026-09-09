@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-import os
 import sys
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from . import __app_name__
+from .ui.assets import icon_path
 from .ui.main_window import MainWindow
 from .ui.theme import apply_theme
 
 
 def _icon() -> QIcon:
-    """Locate the app icon whether running from source or a frozen bundle."""
-    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    path = os.path.join(base, "assets", "icon.png")
-    return QIcon(path) if os.path.exists(path) else QIcon()
+    path = icon_path()
+    return QIcon(path) if path else QIcon()
 
 
 def main() -> int:
