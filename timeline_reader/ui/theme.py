@@ -23,10 +23,9 @@ TEXT_BRIGHT = "#f0f0f0"
 ACCENT = "#4a90d9"        # Resolve-ish blue
 ACCENT_HI = "#5fa3e6"
 AMBER = "#e0952b"         # warning highlight
-# Accents sampled from the app icon (green / red / blue clips + playhead).
+# Accents sampled from the app icon (green button, blue identity columns).
 GREEN = "#54b876"         # action green (export)
 GREEN_HI = "#63c785"
-RED = "#e5484d"           # effect column (icon playhead red)
 IDENTITY = "#4c94de"      # # and Clip Name columns (icon blue)
 ROW_ALT = "#262626"
 HEADER_BG = "#2a2a2a"

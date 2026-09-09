@@ -155,17 +155,10 @@ class TableModel(QAbstractTableModel):
             i for i, h in enumerate(self._headers)
             if any(hint in h.lower() for hint in _MONO_HINTS)
         }
-        self._effect_col = self._find_col("effect")
         self._id_cols = self._identity_cols(self._headers)
         self._mono = QFont("SF Mono")
         self._mono.setStyleHint(QFont.Monospace)
         self._mono.setPointSize(12)
-
-    def _find_col(self, name: str):
-        for i, h in enumerate(self._headers):
-            if h.lower() == name:
-                return i
-        return -1
 
     @staticmethod
     def _identity_cols(headers) -> set[int]:
@@ -179,7 +172,6 @@ class TableModel(QAbstractTableModel):
             i for i, h in enumerate(headers)
             if any(hint in h.lower() for hint in _MONO_HINTS)
         }
-        self._effect_col = self._find_col("effect")
         self._id_cols = self._identity_cols(headers)
         self.endResetModel()
 
@@ -199,8 +191,6 @@ class TableModel(QAbstractTableModel):
         if role == Qt.FontRole and col in self._mono_cols:
             return self._mono
         if role == Qt.ForegroundRole:
-            if col == self._effect_col and value:
-                return QColor(theme.RED)
             if col in self._id_cols:
                 return QColor(theme.IDENTITY)
         if role == Qt.TextAlignmentRole and col in self._mono_cols:

@@ -131,10 +131,24 @@ class TimelineReportTab(QWidget):
         self._update_actions()
 
     def _toolbar(self):
-        """Thin row between the top cards and the table: column chooser and a
-        clear-selection button."""
+        """Thin row between the top cards and the table: sequence picker (when a
+        bin/AAF holds more than one), column chooser and a clear-selection button."""
         bar = QHBoxLayout()
         bar.setSpacing(8)
+
+        # Sequence picker — leftmost; shown only when there's more than one.
+        self.seq_row = QWidget()
+        seq_lay = QHBoxLayout(self.seq_row)
+        seq_lay.setContentsMargins(0, 0, 0, 0)
+        seq_lay.setSpacing(8)
+        seq_lay.addWidget(QLabel("Sequence:"))
+        self.seq_combo = QComboBox()
+        self.seq_combo.setMinimumWidth(240)
+        self.seq_combo.currentIndexChanged.connect(self._switch_sequence)
+        seq_lay.addWidget(self.seq_combo)
+        self.seq_row.hide()
+        bar.addWidget(self.seq_row)
+
         self.columns_btn = QPushButton("Choose columns…")
         self.columns_btn.clicked.connect(self._choose_columns)
         bar.addWidget(self.columns_btn)
@@ -164,20 +178,6 @@ class TimelineReportTab(QWidget):
         self.seq_name = QLabel("No file loaded")
         self.seq_name.setObjectName("DropTitle")
         lay.addWidget(self.seq_name)
-
-        # Sequence picker — shown only when a bin/AAF holds more than one.
-        self.seq_row = QWidget()
-        seq_lay = QHBoxLayout(self.seq_row)
-        seq_lay.setContentsMargins(0, 0, 0, 0)
-        seq_lay.setSpacing(8)
-        seq_lay.addWidget(QLabel("Sequence:"))
-        self.seq_combo = QComboBox()
-        self.seq_combo.setMinimumWidth(240)
-        self.seq_combo.currentIndexChanged.connect(self._switch_sequence)
-        seq_lay.addWidget(self.seq_combo, 1)
-        seq_lay.addStretch(0)
-        self.seq_row.hide()
-        lay.addWidget(self.seq_row)
 
         stats = QHBoxLayout()
         stats.setSpacing(28)
