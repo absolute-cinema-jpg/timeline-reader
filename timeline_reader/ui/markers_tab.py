@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..exporters import rows_to_delimited, write_delimited
+from ..exporters import export_table, format_at, format_labels, rows_to_delimited
 from ..models import Marker, Timeline
 from ..timecode import frames_to_duration, frames_to_tc
 from .report_tab import TIMELINE_EXTS, _ParseWorker
@@ -142,7 +142,7 @@ class MarkersTab(QWidget):
 
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
-        self.fmt.addItems(["CSV (.csv)", "TSV (.tsv)"])
+        self.fmt.addItems(format_labels())
         bar.addWidget(self.fmt)
 
         self.copy_btn = QPushButton("Copy")
@@ -260,29 +260,27 @@ class MarkersTab(QWidget):
         self.copy_btn.setEnabled(has)
 
     # ---- output -----------------------------------------------------------
-    def _delimiter(self):
-        return "," if self.fmt.currentIndex() == 0 else "\t"
-
-    def _suggested_name(self):
+    def _base_name(self) -> str:
         base = self._timeline.name if self._timeline else "markers"
         base = "".join(c if c.isalnum() or c in "-_ " else "_" for c in base).strip()
-        base = base or "markers"
-        ext = ".csv" if self.fmt.currentIndex() == 0 else ".tsv"
-        return f"{base}_markers{ext}"
+        return base or "markers"
+
+    def _suggested_name(self):
+        _label, ext, _filt, _kind = format_at(self.fmt.currentIndex())
+        return f"{self._base_name()}_markers{ext}"
 
     def _export(self):
         if not self._rows:
             return
-        ext = ".csv" if self.fmt.currentIndex() == 0 else ".tsv"
-        filt = "CSV (*.csv)" if ext == ".csv" else "TSV (*.tsv)"
+        _label, ext, filt, kind = format_at(self.fmt.currentIndex())
         path, _ = QFileDialog.getSaveFileName(self, "Export markers", self._suggested_name(), filt)
         if not path:
             return
         if not path.lower().endswith(ext):
             path += ext
         try:
-            write_delimited(path, _HEADERS, self._rows, self._delimiter())
-        except OSError as exc:
+            export_table(path, list(_HEADERS), self._rows, kind, sheet_name=f"{self._base_name()} markers")
+        except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
         self.status.emit(f"Exported {len(self._rows)} markers → {path}")

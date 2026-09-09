@@ -9,9 +9,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import tempfile
+
 from timeline_reader.captions import parse_caption_text, to_srt
 from timeline_reader.columns import CLIPLIST_REPORT, ColumnSelection, META_PREFIX
 from timeline_reader.effects import classify, is_optical_category
+from timeline_reader.exporters import export_table, format_labels
 from timeline_reader.models import Clip, Timeline
 from timeline_reader.timecode import Timecode
 
@@ -175,6 +178,41 @@ def test_marker_extraction_from_sample_bin():
     assert ("vfx 1", "White", "V4") in got
     assert len(tl.markers) == 7
     assert all(m.user and m.date for m in tl.markers)
+
+
+_HEADERS = ["#", "Clip Name", "Rec In"]
+_ROWS = [["1", "2-25-3", "00:00:03:17"], ["2", "wide’s", "00:00:05:00"]]
+
+
+def test_export_formats_listed():
+    labels = format_labels()
+    assert any(".xlsx" in l for l in labels) and any(".ods" in l for l in labels)
+
+
+def test_xlsx_roundtrip():
+    from openpyxl import load_workbook
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "r.xlsx")
+        export_table(path, _HEADERS, _ROWS, "xlsx", sheet_name="THR:test/1")
+        ws = load_workbook(path).active
+        assert len(ws.title) <= 31 and "/" not in ws.title  # sheet name sanitised
+        assert [c.value for c in ws[1]] == _HEADERS
+        assert [c.value for c in ws[2]] == _ROWS[0]
+        assert ws["B3"].value == "wide’s"  # unicode preserved
+
+
+def test_ods_roundtrip():
+    from odf import teletype
+    from odf.opendocument import load
+    from odf.table import Table, TableCell, TableRow
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "r.ods")
+        export_table(path, _HEADERS, _ROWS, "ods", sheet_name="Report")
+        table = load(path).spreadsheet.getElementsByType(Table)[0]
+        rows = table.getElementsByType(TableRow)
+        header = [teletype.extractText(c) for c in rows[0].getElementsByType(TableCell)]
+        assert header == _HEADERS
+        assert teletype.extractText(rows[2].getElementsByType(TableCell)[1]) == "wide’s"
 
 
 if __name__ == "__main__":

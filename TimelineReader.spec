@@ -7,6 +7,9 @@ hiddenimports = (
     collect_submodules("aaf2")
     + collect_submodules("avb")
     + collect_submodules("timeline_reader")
+    + collect_submodules("openpyxl")   # Excel (.xlsx) export
+    + collect_submodules("odf")        # OpenDocument (.ods) export
+    + ["et_xmlfile", "defusedxml"]
 )
 
 a = Analysis(

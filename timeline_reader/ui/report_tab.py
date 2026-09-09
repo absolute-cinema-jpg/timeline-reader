@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..columns import ColumnSelection, Report
-from ..exporters import rows_to_delimited, write_delimited
+from ..exporters import export_table, format_at, format_labels, rows_to_delimited
 from ..models import Timeline
 from ..parsers import ParseError, parse_timeline
 from .column_dialog import ColumnDialog
@@ -99,10 +99,15 @@ class TimelineReportTab(QWidget):
         root.addLayout(top)
 
         self.table = ReportTable()
+        self.table.setToolTip(
+            "Exports every row by default. Select rows to export just those "
+            "(⌘/Shift-click for more); Esc or “Clear selection” goes back to all."
+        )
         self.table.horizontalHeader().sectionMoved.connect(self._on_section_moved)
         root.addWidget(self.table, 1)
 
         root.addLayout(self._action_bar())
+        self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._update_actions()
 
     def _info_card(self):
@@ -179,13 +184,18 @@ class TimelineReportTab(QWidget):
         bar.addWidget(self.row_count)
         bar.addStretch(1)
 
+        self.clear_sel_btn = QPushButton("Clear selection")
+        self.clear_sel_btn.clicked.connect(self.table.clearSelection)
+        self.clear_sel_btn.hide()  # only shown while rows are selected
+        bar.addWidget(self.clear_sel_btn)
+
         self.columns_btn = QPushButton("Columns…")
         self.columns_btn.clicked.connect(self._choose_columns)
         bar.addWidget(self.columns_btn)
 
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
-        self.fmt.addItems(["CSV (.csv)", "TSV (.tsv)"])
+        self.fmt.addItems(format_labels())
         bar.addWidget(self.fmt)
 
         self.copy_btn = QPushButton("Copy")
@@ -292,6 +302,18 @@ class TimelineReportTab(QWidget):
         self.export_btn.setEnabled(has)
         self.copy_btn.setEnabled(has)
         self.columns_btn.setEnabled(self._timeline is not None)
+        self._on_selection_changed()
+
+    def _on_selection_changed(self, *_):
+        """Keep the export controls in sync with the row selection so it's always
+        clear whether you'll export everything or just the highlighted rows."""
+        n = len(self.table.selected_rows()) if self._rows else 0
+        if n:
+            self.export_btn.setText(f"Export {n} selected…")
+            self.clear_sel_btn.show()
+        else:
+            self.export_btn.setText("Export all…")
+            self.clear_sel_btn.hide()
 
     # ---- columns ----------------------------------------------------------
     def _choose_columns(self):
@@ -329,41 +351,51 @@ class TimelineReportTab(QWidget):
         self.status.emit("Columns reordered")
 
     # ---- output -----------------------------------------------------------
-    def _delimiter(self):
-        return "," if self.fmt.currentIndex() == 0 else "\t"
+    def _base_name(self) -> str:
+        base = self._timeline.name if self._timeline else self._export_basename
+        base = "".join(c if c.isalnum() or c in "-_ " else "_" for c in base).strip()
+        return base or self._export_basename
 
     def _suggested_name(self):
         # Default filename is just the chosen sequence's name.
-        base = self._timeline.name if self._timeline else self._export_basename
-        base = "".join(c if c.isalnum() or c in "-_ " else "_" for c in base).strip()
-        base = base or self._export_basename
-        ext = ".csv" if self.fmt.currentIndex() == 0 else ".tsv"
-        return f"{base}{ext}"
+        _label, ext, _filt, _kind = format_at(self.fmt.currentIndex())
+        return f"{self._base_name()}{ext}"
+
+    def _selected_or_all_rows(self):
+        """Rows to output: just the selected ones (in on-screen order) if the
+        user has a selection, otherwise the whole report."""
+        sel = self.table.selected_rows()
+        if sel:
+            return [self._rows[i] for i in sel], True
+        return self._rows, False
 
     def _export(self):
         if not self._rows:
             return
-        ext = ".csv" if self.fmt.currentIndex() == 0 else ".tsv"
-        filt = "CSV (*.csv)" if ext == ".csv" else "TSV (*.tsv)"
+        rows, is_selection = self._selected_or_all_rows()
+        _label, ext, filt, kind = format_at(self.fmt.currentIndex())
         path, _ = QFileDialog.getSaveFileName(self, "Export report", self._suggested_name(), filt)
         if not path:
             return
         if not path.lower().endswith(ext):
             path += ext
         try:
-            write_delimited(path, self._headers, self._rows, self._delimiter())
-        except OSError as exc:
+            export_table(path, self._headers, rows, kind, sheet_name=self._base_name())
+        except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
-        self.status.emit(f"Exported {len(self._rows)} rows → {path}")
+        what = f"{len(rows)} selected rows" if is_selection else f"{len(rows)} rows"
+        self.status.emit(f"Exported {what} → {path}")
         QMessageBox.information(
             self, "Export complete",
-            f"Wrote {len(self._rows)} rows to:\n{path}",
+            f"Wrote {what} to:\n{path}",
         )
 
     def _copy(self):
         if not self._rows:
             return
-        text = rows_to_delimited(self._headers, self._rows, "\t")
+        rows, is_selection = self._selected_or_all_rows()
+        text = rows_to_delimited(self._headers, rows, "\t")
         QApplication.clipboard().setText(text)
-        self.status.emit("Copied table to clipboard (tab-separated)")
+        what = f"{len(rows)} selected rows" if is_selection else "table"
+        self.status.emit(f"Copied {what} to clipboard (tab-separated)")

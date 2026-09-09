@@ -58,8 +58,10 @@ Exports default to the **chosen sequence's name** (e.g. `THR_L_260721.csv`).
 > contains no markers. It reads `avb.misc.Marker` comments wherever they attach;
 > share a bin with locators and it can be confirmed/tuned.
 
-Each report can be **exported to CSV or TSV** (SRT for captions) or copied to the
-clipboard.
+Each report can be **exported to CSV, TSV, Excel (`.xlsx`) or OpenDocument
+(`.ods`)** — SRT for captions — or copied to the clipboard. Excel/ODS exports
+carry a bold, frozen header row (with an auto-filter in Excel). If a selection
+is active, only the selected rows are exported.
 
 ## Running from source
 
@@ -105,7 +107,7 @@ timeline_reader/
   effects.py          effect classification + opticals rules
   captions.py         DS Caption (.txt) -> SRT
   reports.py          Timeline -> table rows (opticals, clip list)
-  exporters.py        CSV / TSV / text writers
+  exporters.py        CSV / TSV / XLSX / ODS / text writers
   parsers/
     avb_parser.py     Avid bin  (pyavb)   — full effect data
     edl_parser.py     CMX3600 EDL
