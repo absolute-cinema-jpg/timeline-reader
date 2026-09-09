@@ -159,11 +159,11 @@ def test_marker_extraction():
 def test_marker_extraction_from_sample_bin():
     """End-to-end against the real sample bin's 'markers' sequence, when present.
 
-    The bin lives under the gitignored ``test files/``; skip cleanly if absent.
+    The bin lives under the gitignored ``01-test files/``; skip cleanly if absent.
     """
     path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "test files", "bin", "timeline-reader test.avb",
+        "01-test files", "bin", "timeline-reader test.avb",
     )
     if not os.path.exists(path):
         return

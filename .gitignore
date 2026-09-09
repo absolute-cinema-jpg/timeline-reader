@@ -7,5 +7,5 @@ __pycache__/
 assets/AppIcon.iconset/
 
 # Not tracked — local reference/test data only
-test files/
-refs/
+01-test files/
+02-refs/
