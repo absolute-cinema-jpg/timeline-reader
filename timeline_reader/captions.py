@@ -49,9 +49,29 @@ class CaptionDoc:
 
 
 def parse_caption_file(path: str, fps: float = 25.0, drop: bool = False) -> CaptionDoc:
-    with open(path, "r", encoding="utf-8-sig", errors="replace") as fh:
-        raw = fh.read()
-    return parse_caption_text(raw, fps=fps, drop=drop, source_path=path)
+    with open(path, "rb") as fh:
+        raw_bytes = fh.read()
+    return parse_caption_text(
+        _decode(raw_bytes), fps=fps, drop=drop, source_path=path
+    )
+
+
+def _decode(data: bytes) -> str:
+    """Decode caption bytes, honouring the byte-order mark.
+
+    Avid's Caption plugin exports either UTF-8 or UTF-16 depending on the
+    version/settings, so we detect the encoding rather than assume one — reading
+    a UTF-16 file as UTF-8 yields garbage and zero cues.
+    """
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")  # BOM selects LE/BE
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig")
+    # No BOM: a run of NUL bytes in the head betrays UTF-16.
+    if data[:128].count(0) > 8:
+        enc = "utf-16-le" if data[1:2] == b"\x00" else "utf-16-be"
+        return data.decode(enc, errors="replace")
+    return data.decode("utf-8", errors="replace")
 
 
 def parse_caption_text(raw: str, fps: float = 25.0, drop: bool = False, source_path: str = "") -> CaptionDoc:

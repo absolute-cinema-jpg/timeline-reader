@@ -44,6 +44,16 @@ def test_caption_to_srt():
     assert "Hello\nWorld" in srt
 
 
+def test_caption_decode_encodings():
+    # Avid Caption exports may be UTF-8 or UTF-16 (BOM or bare); all must decode.
+    from timeline_reader.captions import _decode
+    text = "<begin subtitles>\r\n00:00:01:00 00:00:02:00\r\nHi there\r\n"
+    for enc in ("utf-8", "utf-8-sig", "utf-16", "utf-16-le", "utf-16-be"):
+        doc = parse_caption_text(_decode(text.encode(enc)), fps=25.0)
+        assert len(doc.cues) == 1, f"{enc} decoded to {len(doc.cues)} cues"
+        assert doc.cues[0].lines == ["Hi there"]
+
+
 def _demo_timeline() -> Timeline:
     tl = Timeline(name="demo", fps=25.0)
     tl.add(Clip(index=1, track="V1", clip_name="1-1-3", tape_name="A001",
