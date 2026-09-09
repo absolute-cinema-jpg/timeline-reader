@@ -200,9 +200,14 @@ class ColumnSelection:
 
     def ordered(self, cols: list[ColumnDef]) -> list[ColumnDef]:
         pos = {cid: i for i, cid in enumerate(self.order)}
-        # Stable sort: listed columns first (by saved position); the rest keep
-        # their canonical order (all share the same fallback key).
-        return sorted(cols, key=lambda c: pos.get(c.id, len(pos)))
+        # The "#" (index) column is always pinned first; a stray drag can't bury
+        # it. Otherwise: listed columns by saved position, then the rest in their
+        # canonical order (all share the same fallback key, so the sort is stable).
+        def key(c: ColumnDef) -> int:
+            if c.id == "index":
+                return -1
+            return pos.get(c.id, len(pos))
+        return sorted(cols, key=key)
 
     def reset(self) -> None:
         self.overrides.clear()

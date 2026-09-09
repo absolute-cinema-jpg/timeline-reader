@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QSortFilterProxyModel,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -198,19 +204,39 @@ class TableModel(QAbstractTableModel):
         return self._headers
 
 
+class _SortProxy(QSortFilterProxyModel):
+    """Sort proxy that orders numeric columns (e.g. ``#``) numerically and
+    everything else as case-insensitive text."""
+
+    def lessThan(self, left, right):
+        lv = self.sourceModel().data(left, Qt.DisplayRole) or ""
+        rv = self.sourceModel().data(right, Qt.DisplayRole) or ""
+        try:
+            return float(lv) < float(rv)
+        except (TypeError, ValueError):
+            return lv.casefold() < rv.casefold()
+
+
 class ReportTable(QTableView):
     """A read-only, sortable, nicely-defaulted table view."""
+
+    #: Column whose ascending order is the default when data (re)loads.
+    _DEFAULT_SORT = "#"
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._model = TableModel()
-        self.setModel(self._model)
+        self._proxy = _SortProxy(self)
+        self._proxy.setSourceModel(self._model)
+        self.setModel(self._proxy)
+        self._sort_label = self._DEFAULT_SORT
+        self._sort_order = Qt.AscendingOrder
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setShowGrid(False)
-        self.setSortingEnabled(False)
+        self.setSortingEnabled(True)  # click a header to sort by that column
         self.setWordWrap(False)
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(28)
@@ -218,15 +244,34 @@ class ReportTable(QTableView):
         self.horizontalHeader().setStretchLastSection(True)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.horizontalHeader().setSectionsMovable(True)  # drag headers to reorder
+        self.horizontalHeader().sortIndicatorChanged.connect(self._remember_sort)
+
+    def _remember_sort(self, section, order):
+        """Track the user's chosen sort by column *label* so it survives the
+        model resets that happen when columns are reordered or reloaded."""
+        headers = self._model.headers
+        if 0 <= section < len(headers):
+            self._sort_label = headers[section]
+            self._sort_order = order
 
     def set_data(self, headers, rows):
         self._model.set_data(headers, rows)
         self._reset_visual_order()
+        self._apply_sort()
         self.resizeColumnsToContents()
         header = self.horizontalHeader()
         for c in range(self._model.columnCount()):
             if header.sectionSize(c) > 320:
                 header.resizeSection(c, 320)
+
+    def _apply_sort(self):
+        """Re-sort by the remembered column, falling back to the default one."""
+        headers = self._model.headers
+        for label in (self._sort_label, self._DEFAULT_SORT):
+            if label in headers:
+                self.sortByColumn(headers.index(label), self._sort_order)
+                return
+        self._proxy.sort(-1)  # no matching column: leave rows in source order
 
     def _reset_visual_order(self):
         """Restore visual==logical order. Qt keeps a header's moved-section map
@@ -239,6 +284,23 @@ class ReportTable(QTableView):
             if visual != logical:
                 header.moveSection(visual, logical)
         header.blockSignals(False)
+
+    def keyPressEvent(self, event):
+        # Escape clears the row selection (back to "export everything").
+        if event.key() == Qt.Key_Escape and self.selectionModel().hasSelection():
+            self.clearSelection()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def selected_rows(self) -> list[int]:
+        """Source-row indices of the currently selected rows, in the order they
+        appear on screen. Empty when nothing is selected."""
+        sm = self.selectionModel()
+        if sm is None:
+            return []
+        idxs = sorted(sm.selectedRows(), key=lambda ix: ix.row())
+        return [self._proxy.mapToSource(ix).row() for ix in idxs]
 
     @property
     def model_(self):
