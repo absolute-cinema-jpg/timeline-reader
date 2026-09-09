@@ -237,6 +237,120 @@ def test_settings_roundtrip():
     assert S.caption_fps_index() == 4
 
 
+# --------------------------------------------------------------------------- #
+# Music Tracker
+# --------------------------------------------------------------------------- #
+def _music_clip(track, name, rs, re, *, head=0, tail=0, artist=""):
+    meta = {"Lead performer(s)/Soloist(s)": artist} if artist else {}
+    return Clip(index=0, track=track, clip_name=name, tape_name=f"{name}.wav",
+                rec_start=rs, rec_end=re, fps=25.0,
+                head_transition=head, tail_transition=tail, meta=meta)
+
+
+def _music_timeline(clips, start_tc=0) -> Timeline:
+    tl = Timeline(name="demo", fps=25.0)
+    tl.audio_clips = clips
+    tl.start_tc = start_tc
+    return tl
+
+
+def test_music_merge_gap_and_interrupt():
+    from timeline_reader import music
+    # 25 fps -> 1s gap = 25 frames.
+    tl = _music_timeline([
+        _music_clip("A5", "song1", 0, 100),        # opens a cue
+        _music_clip("A5", "song1", 110, 200),      # +10f gap, same song -> merges
+        _music_clip("A5", "song1", 400, 500),      # +200f gap -> new cue (same song)
+        _music_clip("A5", "song2", 505, 600),      # different song -> interrupts
+    ])
+    cues = music.build_cues(tl, {"A5"}, gap_seconds=1.0)
+    assert [c.song for c in cues] == ["song1", "song1", "song2"]
+    assert (cues[0].rec_in, cues[0].rec_out) == (0, 200)     # add-edit merged
+    assert (cues[1].rec_in, cues[1].rec_out) == (400, 500)
+    assert (cues[2].rec_in, cues[2].rec_out) == (505, 600)
+
+
+def test_music_interrupt_beats_gap():
+    """A different piece coming in within the gap window still splits the cue."""
+    from timeline_reader import music
+    tl = _music_timeline([
+        _music_clip("A5", "song1", 0, 100),
+        _music_clip("A5", "song2", 105, 200),  # 5f gap but a different song
+    ])
+    cues = music.build_cues(tl, {"A5"}, gap_seconds=1.0)
+    assert [c.song for c in cues] == ["song1", "song2"]
+
+
+def test_music_checkerboard_across_tracks():
+    """One cue laid across two tracks (so it can overlap itself) stays one cue,
+    and lists both tracks."""
+    from timeline_reader import music
+    tl = _music_timeline([
+        _music_clip("A5", "song1", 0, 100),
+        _music_clip("A6", "song1", 90, 220),
+    ])
+    cues = music.build_cues(tl, {"A5", "A6"}, gap_seconds=1.0)
+    assert len(cues) == 1
+    assert cues[0].tracks == ["A5", "A6"]
+    assert (cues[0].rec_in, cues[0].rec_out) == (0, 220)
+
+
+def test_music_track_filtering():
+    from timeline_reader import music
+    tl = _music_timeline([
+        _music_clip("A5", "song1", 0, 100),
+        _music_clip("A1", "dialogue", 0, 100),  # not a chosen music track
+    ])
+    cues = music.build_cues(tl, {"A5"}, gap_seconds=1.0)
+    assert len(cues) == 1 and cues[0].song == "song1"
+
+
+def test_music_reel_from_hour():
+    from timeline_reader import music
+    start = Timecode.from_string("01:00:00:00", 25.0).frames  # reel 1
+    tl = _music_timeline([_music_clip("A5", "song1", 4592, 5000, artist="Anil")],
+                         start_tc=start)
+    cue = music.build_cues(tl, {"A5"})[0]
+    assert cue.reel() == "1"
+    assert cue.row()[4] == "01:03:03:17"  # TC In = start + rec_start
+    assert cue.artist == "Anil"
+
+
+def test_music_dissolve_inclusion():
+    from timeline_reader import music
+    clip = _music_clip("A5", "song1", 100, 200, head=25, tail=25)
+    incl = music.build_cues(_music_timeline([clip]), {"A5"}, include_dissolves=True)[0]
+    excl = music.build_cues(_music_timeline([clip]), {"A5"}, include_dissolves=False)[0]
+    assert (incl.rec_in, incl.rec_out) == (100, 225)   # fades counted
+    assert (excl.rec_in, excl.rec_out) == (125, 200)   # trimmed to hard cuts
+
+
+def test_music_from_sample_bin():
+    """End-to-end against the real sample bin's music tracks (A15/A16), if present."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "01-test files", "bin", "04-Lock.avb",
+    )
+    if not os.path.exists(path):
+        return
+    from timeline_reader import music
+    from timeline_reader.parsers import parse_timeline
+
+    tl = parse_timeline(path)
+    assert tl.audio_clips, "sound tracks should be parsed into audio_clips"
+    assert {"A15", "A16"} <= set(music.available_tracks(tl))
+
+    cues = music.build_cues(tl, {"A15", "A16"}, gap_seconds=1.0)
+    # The Kashmiri cue opens the reel and is checkerboarded across A15 + A16.
+    first = cues[0]
+    assert first.song == "01-Kashmiri"
+    assert first.tracks == ["A15", "A16"]
+    assert first.artist == "Anil"
+    # A song reused far later in the timeline splits into separate cues.
+    dimensions = [c for c in cues if c.song == "13-Dimensions"]
+    assert len(dimensions) >= 2
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

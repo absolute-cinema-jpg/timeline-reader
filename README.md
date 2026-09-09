@@ -4,7 +4,7 @@ A translation layer for Avid Media Composer. Drop in a timeline export and get
 clean department reports as spreadsheets — no manual timeline study required.
 
 It reads **Avid bins (`.avb`)**, **EDLs (CMX3600)**, **AAF**, and
-**tab-delimited** bin exports, and produces three reports through a dark,
+**tab-delimited** bin exports, and produces its reports through a dark,
 DaVinci-Resolve-style interface.
 
 ## Features
@@ -24,7 +24,22 @@ excluded so the list stays focused on true opticals.
 An ordered list of every clip in the timeline (record order), with **clip name,
 tape/source name, source in/out and record in/out** timecodes plus duration.
 
-### 3. Captions → SRT
+### 3. Music Tracker
+A music cue sheet built from the sound tracks — one row per piece of music with
+**Reel, Track, Artist / Composer, Filename, TC In, TC Out, Duration**. You tick
+which sound tracks hold the music (move your music clips onto those tracks and
+clear everything else off them first); the report is built by **merging** the
+many segments an editor leaves behind — add edits, small nudges, and a cue
+checkerboarded across two tracks so it can overlap itself — back into a single
+cue. A cue ends only when it falls **silent longer than a set gap** (default one
+second) or when a **different piece of music interrupts** it. **Cross dissolves**
+on a cue's head/tail are included in its in/out by default (toggleable). The
+**Reel** is read from the hour field of the record TC In (a sequence starting at
+`01:00:00:00` is reel 1), and Artist / Composer comes from the clip's bin
+metadata (e.g. the `Lead performer(s)/Soloist(s)` field). Music cue merging lives
+in `timeline_reader/music.py`.
+
+### 4. Captions → SRT
 Converts an **Avid DS Caption (`.txt`)** file into a standard **SubRip (`.srt`)**
 subtitle file, with a live preview and a selectable frame rate (including
 drop-frame for 29.97 / 59.94). Validated against a real Avid Caption export
@@ -139,6 +154,7 @@ timeline_reader/
   models.py           Timeline / Clip / Effect data model
   effects.py          effect classification + opticals rules
   captions.py         DS Caption (.txt) -> SRT
+  music.py            sound segments -> merged music cues
   reports.py          Timeline -> table rows (opticals, clip list)
   exporters.py        CSV / TSV / XLSX / ODS / text writers
   parsers/
@@ -149,6 +165,8 @@ timeline_reader/
   ui/
     main_window.py    branded top bar + page tabs
     report_tab.py     shared Opticals / Clip-list tab
+    markers_tab.py    timeline markers / locators tab
+    music_tab.py      music tracker (cue sheet) tab
     captions_tab.py   caption converter tab
     widgets.py        drop zone + report table
     theme.py          Resolve-style dark theme

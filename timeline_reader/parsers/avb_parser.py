@@ -54,6 +54,8 @@ def parse(path: str, key: int | None = None) -> Timeline:
             sequence_key=key,
         )
 
+        tl.start_tc = _read_start_tc(comp, fps)
+
         picture_tracks = [
             t for t in comp.tracks if getattr(t, "media_kind", None) == "picture"
         ]
@@ -66,6 +68,16 @@ def parse(path: str, key: int | None = None) -> Timeline:
                 continue
             _walk_track(seq, track_name, fps, drop, tl)
             _collect_track_markers(seq, track_name, tl)
+
+        sound_tracks = [
+            t for t in comp.tracks if getattr(t, "media_kind", None) == "sound"
+        ]
+        sound_tracks.sort(key=lambda t: getattr(t, "index", 0))
+        for tr in sound_tracks:
+            track_name = f"A{getattr(tr, 'index', '?')}"
+            seq = _inner_sequence(tr.component)
+            if seq is not None:
+                _walk_audio_track(seq, track_name, fps, drop, tl)
 
     if not tl.clips:
         tl.warnings.append("Sequence parsed but no clips were found on picture tracks.")
@@ -113,6 +125,102 @@ def _walk_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> N
             clip.clip_name = "(no source)"
         tl.add(clip)
         pos += length
+
+
+# --------------------------------------------------------------------------- #
+# Audio (sound) track walking — for the Music Tracker
+# --------------------------------------------------------------------------- #
+def _inner_sequence(comp):
+    """The picture/sound Sequence inside a track component.
+
+    Sound tracks are often wrapped in a track-level effect (a TrackEffect for
+    submaster gain/EQ) whose nested track holds the real Sequence, so descend
+    until a Sequence is found rather than assuming the component is one."""
+    if comp is None:
+        return None
+    if isinstance(comp, Sequence):
+        return comp
+    pd = getattr(comp, "property_data", {})
+    for tr in pd.get("tracks", []) or []:
+        seq = _inner_sequence(getattr(tr, "component", None))
+        if seq is not None:
+            return seq
+    return None
+
+
+def _walk_audio_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> None:
+    """Walk one sound track in record order, appending a :class:`Clip` per audio
+    segment to ``tl.audio_clips`` (kept apart from picture ``clips`` so the other
+    tabs are unaffected).
+
+    Cross dissolves are ``TransitionEffect`` components that overlap the cut, so a
+    following segment is pulled back under them exactly as in :func:`_walk_track`.
+    Each segment records the length of the dissolve on its head (the transition
+    just before it) and tail (the transition just after it) so the Music Tracker
+    can optionally include those fades in a cue's in/out. Audio clips sit inside a
+    ``PanVolumeEffect`` wrapper; ``_first_source_clip`` descends into it.
+    """
+    pos = 0
+    pending_head = 0
+    last: Clip | None = None
+    for comp in seq.components:
+        length = int(getattr(comp, "length", 0) or 0)
+        if type(comp).__name__ == "TransitionEffect":
+            if last is not None:
+                last.tail_transition = length
+            pending_head = length
+            pos -= length
+            continue
+        if isinstance(comp, Filler):
+            pos += length
+            pending_head = 0
+            last = None
+            continue
+
+        src = _first_source_clip(comp)
+        if src is None:
+            pos += length
+            pending_head = 0
+            last = None
+            continue
+
+        clip = Clip(
+            index=0,
+            track=track_name,
+            rec_start=pos,
+            rec_end=pos + length,
+            fps=fps,
+            drop=drop,
+            head_transition=pending_head,
+        )
+        _resolve_source(src, clip, media_kind="sound")
+        tl.audio_clips.append(clip)
+        last = clip
+        pending_head = 0
+        pos += length
+
+
+def _read_start_tc(comp, fps: float) -> int:
+    """The sequence's record start timecode, in frames.
+
+    A CompositionMob carries one or more timecode tracks; the record TC is the
+    one whose rate matches the sequence rate. Media Composer sequences that begin
+    on a reel boundary start at e.g. 01:00:00:00, so this offset is what makes the
+    hour field meaningful (reel 1, reel 2, …)."""
+    nominal = int(round(fps))
+    fallback = 0
+    for tr in comp.tracks:
+        c = tr.component
+        if getattr(c, "media_kind", None) != "timecode":
+            continue
+        if type(c).__name__ != "Timecode":
+            continue
+        start = int(getattr(c, "start", 0) or 0)
+        tc_fps = int(getattr(c, "fps", 0) or 0)
+        if tc_fps == nominal:
+            return start
+        fallback = fallback or start
+    return fallback
 
 
 def _collect_effects(node, effects: list[Effect], guard: int = 0) -> None:
@@ -172,7 +280,7 @@ def _motion_detail(node) -> str:
 # --------------------------------------------------------------------------- #
 # Source-clip resolution (name / tape / source timecode)
 # --------------------------------------------------------------------------- #
-def _resolve_source(src, clip: Clip) -> None:
+def _resolve_source(src, clip: Clip, media_kind: str = "picture") -> None:
     cur = src
     offset = 0
     guard = 0
@@ -187,11 +295,11 @@ def _resolve_source(src, clip: Clip) -> None:
         if not clip.clip_name and name and mob_type == "CompositionMob":
             clip.clip_name = name
         if mob_type in ("SourceMob", "MasterMob") and name:
-            clip.tape_name = name  # last one wins -> physical tape
+            clip.tape_name = name  # last one wins -> physical tape / file
         _collect_metadata(m, clip)
         for tr in getattr(m, "tracks", []):
             _collect_markers(getattr(tr, "component", None), clip)  # master-clip locators
-        cur = _next_in_chain(m, cur.track_id)
+        cur = _next_in_chain(m, cur.track_id, media_kind)
 
     length = clip.rec_end - clip.rec_start
     clip.src_start = offset
@@ -442,9 +550,9 @@ def _marker_colour(marker) -> str:
     return ""
 
 
-def _next_in_chain(mob, track_id):
+def _next_in_chain(mob, track_id, media_kind: str = "picture"):
     for tr in mob.tracks:
-        if getattr(tr, "media_kind", None) != "picture":
+        if getattr(tr, "media_kind", None) != media_kind:
             continue
         if getattr(tr, "index", None) != track_id:
             continue

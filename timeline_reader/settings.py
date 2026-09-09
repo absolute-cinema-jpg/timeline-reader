@@ -89,3 +89,36 @@ def caption_fps_index(default: int = 2) -> int:
 
 def set_caption_fps_index(index: int) -> None:
     _store().setValue("captions/fps_index", int(index))
+
+
+# --------------------------------------------------------------------------- #
+# Music Tracker
+# --------------------------------------------------------------------------- #
+def music_gap_seconds(default: float = 1.0) -> float:
+    try:
+        return float(_store().value("music/gap_seconds", default))
+    except (TypeError, ValueError):
+        return default
+
+
+def set_music_gap_seconds(seconds: float) -> None:
+    _store().setValue("music/gap_seconds", float(seconds))
+
+
+def music_include_dissolves(default: bool = True) -> bool:
+    return _store().value("music/include_dissolves", default, type=bool)
+
+
+def set_music_include_dissolves(on: bool) -> None:
+    _store().setValue("music/include_dissolves", bool(on))
+
+
+def music_tracks() -> list[str]:
+    """Track names last used as music tracks (re-applied to a new file where they
+    exist), stored as a comma-separated string."""
+    raw = _store().value("music/tracks", "", type=str)
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+def set_music_tracks(tracks: list[str]) -> None:
+    _store().setValue("music/tracks", ",".join(tracks))

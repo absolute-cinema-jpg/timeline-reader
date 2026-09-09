@@ -20,6 +20,7 @@ from ..columns import CLIPLIST_REPORT, OPTICALS_REPORT
 from .assets import icon_path
 from .captions_tab import CaptionsTab
 from .markers_tab import MarkersTab
+from .music_tab import MusicTab
 from .report_tab import TimelineReportTab
 
 
@@ -57,14 +58,15 @@ class MainWindow(QMainWindow):
             count_label="Clips",
         )
         self.markers = MarkersTab()
+        self.music = MusicTab()
         self.captions = CaptionsTab()
 
-        for tab in (self.opticals, self.cliplist, self.markers, self.captions):
+        for tab in (self.opticals, self.cliplist, self.markers, self.music, self.captions):
             tab.status.connect(self._status)
 
         # Choosing a timeline file in one tab loads it in the others too. The
         # Captions tab reads caption .txt files, not timelines, so it's excluded.
-        self._timeline_tabs = (self.opticals, self.cliplist, self.markers)
+        self._timeline_tabs = (self.opticals, self.cliplist, self.markers, self.music)
         for tab in self._timeline_tabs:
             tab.drop.fileSelected.connect(
                 lambda path, origin=tab: self._sync_timeline_file(origin, path)
@@ -73,6 +75,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.opticals, "  Opticals List  ")
         self.tabs.addTab(self.cliplist, "  Clip List  ")
         self.tabs.addTab(self.markers, "  Markers  ")
+        self.tabs.addTab(self.music, "  Music Tracker  ")
         self.tabs.addTab(self.captions, "  Captions → SRT  ")
         outer.addWidget(self.tabs, 1)
 

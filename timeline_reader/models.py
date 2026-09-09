@@ -59,6 +59,8 @@ class Clip:
     drop: bool = False
     effects: list[Effect] = field(default_factory=list)
     meta: dict[str, str] = field(default_factory=dict)  # extra metadata columns
+    head_transition: int = 0         # incoming dissolve length, frames (audio cues)
+    tail_transition: int = 0         # outgoing dissolve length, frames (audio cues)
 
     @property
     def duration(self) -> int:
@@ -73,6 +75,8 @@ class Timeline:
     fps: float = 25.0
     drop: bool = False
     clips: list[Clip] = field(default_factory=list)
+    audio_clips: list[Clip] = field(default_factory=list)  # sound-track segments
+    start_tc: int = 0                # sequence record start timecode, frames
     markers: list[Marker] = field(default_factory=list)
     source_path: str = ""
     source_format: str = ""          # "Avid Bin", "EDL", "AAF", "Tab-delimited"
