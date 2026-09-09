@@ -285,7 +285,8 @@ class MarkersTab(QWidget):
         if not self._rows:
             return
         _label, ext, filt, kind = format_at(self.fmt.currentIndex())
-        start = settings.export_start_path(self._suggested_name())
+        input_dir = os.path.dirname(os.path.abspath(self._path)) if self._path else ""
+        start = settings.export_start_path(self._suggested_name(), input_dir)
         path, _ = QFileDialog.getSaveFileName(self, "Export markers", start, filt)
         if not path:
             return

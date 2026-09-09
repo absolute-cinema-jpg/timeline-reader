@@ -75,14 +75,15 @@ _TIMECODES = [
 
 
 def _opticals_builtin() -> list[ColumnDef]:
-    # # and Clip Name lead; effect and remaining identity columns follow.
+    # #, Clip Name, Effect, Notes lead; the rest follow in canonical order.
     return [
-        _CORE_BEFORE[0], _CLIP_IDENTITY[0], _CORE_BEFORE[1],
-        _EFFECT_COLS[0], _EFFECT_COLS[1],
+        _CORE_BEFORE[0], _CLIP_IDENTITY[0],
+        _EFFECT_COLS[0],
+        _make("notes", "Notes", "Effect", True, lambda c: c.effect.detail if c.effect else ""),
+        _CORE_BEFORE[1], _EFFECT_COLS[1],
         _CLIP_IDENTITY[1],
         _col("rec_in"), _col("rec_out"), _col("src_in"), _col("src_out"),
         _col("duration"),
-        _make("notes", "Notes", "Effect", True, lambda c: c.effect.detail if c.effect else ""),
         _col("effect_id"),
     ]
 

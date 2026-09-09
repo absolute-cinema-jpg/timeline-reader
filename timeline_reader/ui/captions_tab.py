@@ -45,6 +45,7 @@ class CaptionsTab(QWidget):
         self._path = ""
         self._doc: CaptionDoc | None = None
         self._srt = ""
+        self._loading = False  # True while we replace the preview programmatically
         self._build()
 
     def _build(self):
@@ -67,7 +68,7 @@ class CaptionsTab(QWidget):
         root.addLayout(top)
 
         prev_head = QHBoxLayout()
-        prev_head.addWidget(section_label("SRT Preview"))
+        prev_head.addWidget(section_label("SRT Preview (editable)"))
         prev_head.addStretch(1)
         self.cue_count = QLabel("")
         self.cue_count.setObjectName("Hint")
@@ -75,11 +76,11 @@ class CaptionsTab(QWidget):
         root.addLayout(prev_head)
 
         self.preview = QPlainTextEdit()
-        self.preview.setReadOnly(True)
         self.preview.setPlaceholderText(
             "The converted SubRip (.srt) subtitles will appear here once a "
-            "caption file is loaded."
+            "caption file is loaded. You can edit them before exporting."
         )
+        self.preview.textChanged.connect(self._on_preview_edited)
         root.addWidget(self.preview, 1)
 
         root.addLayout(self._action_bar())
@@ -160,7 +161,7 @@ class CaptionsTab(QWidget):
             self.status.emit("Caption load failed")
             return
         n = len(self._doc.cues)
-        self.preview.setPlainText(self._srt)
+        self._set_preview(self._srt)
         self.drop.show_loaded(self._path, f"{n} cues · {self.fps.currentText()}")
         self.info.setText(f"{os.path.basename(self._path)}\n{n} caption cues detected.")
         self.cue_count.setText(f"{n} cues")
@@ -173,14 +174,32 @@ class CaptionsTab(QWidget):
     def _reset(self):
         self._doc = None
         self._srt = ""
-        self.preview.clear()
+        self._set_preview("")
         self.info.setText("No file loaded")
         self.cue_count.setText("")
         self.summary.setText("Load an Avid DS Caption .txt to convert")
         self._update_actions()
 
+    def _set_preview(self, text: str):
+        """Replace the preview contents without treating it as a user edit."""
+        self._loading = True
+        try:
+            self.preview.setPlainText(text)
+        finally:
+            self._loading = False
+
+    def _current_srt(self) -> str:
+        """The SRT to export/copy — the live (possibly edited) preview text."""
+        return self.preview.toPlainText()
+
+    def _on_preview_edited(self):
+        if self._loading:
+            return
+        # The user has hand-edited the subtitles; keep export/copy in sync.
+        self._update_actions()
+
     def _update_actions(self):
-        has = bool(self._srt.strip())
+        has = bool(self._current_srt().strip())
         self.export_btn.setEnabled(has)
         self.copy_btn.setEnabled(has)
 
@@ -189,16 +208,18 @@ class CaptionsTab(QWidget):
         return f"{base}.srt"
 
     def _export(self):
-        if not self._srt:
+        srt = self._current_srt()
+        if not srt.strip():
             return
-        start = settings.export_start_path(self._suggested_name())
+        input_dir = os.path.dirname(os.path.abspath(self._path)) if self._path else ""
+        start = settings.export_start_path(self._suggested_name(), input_dir)
         path, _ = QFileDialog.getSaveFileName(self, "Export SRT", start, "SubRip (*.srt)")
         if not path:
             return
         if not path.lower().endswith(".srt"):
             path += ".srt"
         try:
-            write_text(path, self._srt)
+            write_text(path, srt)
         except OSError as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
@@ -207,7 +228,8 @@ class CaptionsTab(QWidget):
         QMessageBox.information(self, "Export complete", f"Wrote subtitles to:\n{path}")
 
     def _copy(self):
-        if not self._srt:
+        srt = self._current_srt()
+        if not srt.strip():
             return
-        QApplication.clipboard().setText(self._srt)
+        QApplication.clipboard().setText(srt)
         self.status.emit("Copied SRT to clipboard")

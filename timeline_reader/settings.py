@@ -45,9 +45,16 @@ def remember_export_path(path: str) -> None:
     _remember_dir("paths/last_export_dir", path)
 
 
-def export_start_path(filename: str) -> str:
-    """A suggested save path: last export folder + *filename*, or just the name."""
+def export_start_path(filename: str, fallback_dir: str = "") -> str:
+    """A suggested save path for the export dialog.
+
+    Prefers the folder of the last export; failing that, *fallback_dir* (e.g.
+    the folder of the file being converted); failing that, just the bare
+    *filename* so the dialog uses its own default location.
+    """
     d = last_export_dir()
+    if not d and fallback_dir and os.path.isdir(fallback_dir):
+        d = fallback_dir
     return os.path.join(d, filename) if d else filename
 
 
