@@ -88,6 +88,12 @@ clipboard. Excel/ODS exports carry a bold, frozen header row (with an
 auto-filter in Excel). If a selection is active, only the selected rows are
 exported.
 
+**Editing the preview:** select rows and press **Delete** / **Backspace** to
+remove them from the report, **⌘Z** to undo the last deletion, and a **Reset
+rows** button (next to *Clear selection*, shown only once you've deleted
+something) to bring every row back. Deletions survive column reorders and only
+affect the export/preview — the loaded file is never changed.
+
 **Markers (`.txt`)** writes a Media Composer marker-import file — one marker per
 row, placed at the row's record timecode — so a report round-trips back onto the
 timeline. The marker's name / comment are filled per report: Opticals uses the

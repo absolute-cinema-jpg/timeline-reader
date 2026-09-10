@@ -40,6 +40,7 @@ from ..exporters import (
 )
 from ..models import Timeline
 from ..parsers import ParseError, parse_timeline
+from ..rowset import RowSet
 from ..timecode import frames_to_duration
 from .column_dialog import ColumnDialog
 from .widgets import DropZone, ReportTable, make_card, section_label
@@ -95,6 +96,9 @@ class TimelineReportTab(QWidget):
         self._path: str = ""
         self._suppress_switch = False
         self._col_ids: list[str] = []
+        self._all_contexts: list = []       # every row from the loaded sequence
+        self._active_contexts: list = []     # the ones still shown (after deletions)
+        self._rowset = RowSet()              # which rows are deleted
         self._build()
 
     # ---- layout -----------------------------------------------------------
@@ -133,6 +137,12 @@ class TimelineReportTab(QWidget):
         self._deselect_sc.setContext(Qt.WidgetWithChildrenShortcut)
         self._deselect_sc.activated.connect(self.table.clearSelection)
 
+        # Delete/Backspace removes selected rows; ⌘Z undoes the last deletion.
+        self.table.deleteKeyPressed.connect(self._delete_selected)
+        self._undo_sc = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self._undo_sc.setContext(Qt.WidgetWithChildrenShortcut)
+        self._undo_sc.activated.connect(self._undo_delete)
+
         self._update_actions()
 
     def _toolbar(self):
@@ -161,6 +171,13 @@ class TimelineReportTab(QWidget):
         self.clear_sel_btn = QPushButton("Clear selection")
         self.clear_sel_btn.clicked.connect(self.table.clearSelection)
         bar.addWidget(self.clear_sel_btn)
+
+        # Restore deleted rows — only visible once something has been deleted.
+        self.reset_rows_btn = QPushButton("Reset rows")
+        self.reset_rows_btn.setToolTip("Bring back every row deleted since the file loaded")
+        self.reset_rows_btn.clicked.connect(self._reset_rows)
+        self.reset_rows_btn.hide()
+        bar.addWidget(self.reset_rows_btn)
 
         bar.addStretch(1)
         return bar
@@ -285,14 +302,12 @@ class TimelineReportTab(QWidget):
     def _on_parsed(self, tl: Timeline):
         self._timeline = tl
         try:
-            cols, self._rows = self._report.render(tl, self._selection)
+            self._all_contexts = list(self._report.iter_ctx(tl))
         except Exception as exc:  # noqa: BLE001
             self._on_failed(f"Report build failed: {exc}")
             return
-        self._col_ids = [c.id for c in cols]
-        self._headers = [c.label for c in cols]
-        self._row_durations = [ctx.clip.duration for ctx in self._report.iter_ctx(tl)]
-        self.table.set_data(self._headers, self._rows)
+        self._rowset = RowSet()  # a fresh file starts with nothing deleted
+        self._rebuild_rows()
         meta = f"{tl.source_format} · {tl.fps:g} fps · {len(tl.clips)} clips"
         self.drop.show_loaded(tl.source_path, meta)
         self.format_badge.setText(tl.source_format)
@@ -336,6 +351,9 @@ class TimelineReportTab(QWidget):
         self._path = ""
         self._headers, self._rows = [], []
         self._row_durations = []
+        self._all_contexts, self._active_contexts = [], []
+        self._rowset = RowSet()
+        self.reset_rows_btn.hide()
         self.table.set_data([], [])
         self.format_badge.hide()
         self.seq_row.hide()
@@ -399,13 +417,48 @@ class TimelineReportTab(QWidget):
     def _rebuild_rows(self):
         if self._timeline is None:
             return
-        cols, self._rows = self._report.render(self._timeline, self._selection)
+        cols = self._report.columns_for(self._timeline, self._selection)
         self._col_ids = [c.id for c in cols]
         self._headers = [c.label for c in cols]
-        self._row_durations = [ctx.clip.duration for ctx in self._report.iter_ctx(self._timeline)]
+        keys = list(range(len(self._all_contexts)))
+        self._active_contexts = self._rowset.active_items(keys, self._all_contexts)
+        for pos, ctx in enumerate(self._active_contexts, 1):
+            ctx.n = pos  # renumber the "#" column contiguously after deletions
+        self._rows = [[c.getter(ctx) for c in cols] for ctx in self._active_contexts]
+        self._row_durations = [ctx.clip.duration for ctx in self._active_contexts]
         self.table.set_data(self._headers, self._rows)
+        self.reset_rows_btn.setVisible(self._rowset.has_deletions)
         self._update_stats()
         self._update_actions()
+
+    # ---- row deletion / undo / reset --------------------------------------
+    def _delete_selected(self):
+        if self._timeline is None:
+            return
+        sel = self.table.selected_rows()
+        if not sel:
+            return
+        active_keys = self._rowset.active_keys(range(len(self._all_contexts)))
+        n = self._rowset.delete_display(sel, active_keys)
+        if not n:
+            return
+        self.table.clearSelection()
+        self._rebuild_rows()
+        self.status.emit(f"Deleted {n} row{'s' if n != 1 else ''} — ⌘Z to undo")
+
+    def _undo_delete(self):
+        if self._timeline is None or not self._rowset.can_undo:
+            return
+        n = self._rowset.undo()
+        self._rebuild_rows()
+        self.status.emit(f"Restored {n} row{'s' if n != 1 else ''}")
+
+    def _reset_rows(self):
+        if not self._rowset.has_deletions:
+            return
+        self._rowset.reset()
+        self._rebuild_rows()
+        self.status.emit("Restored all rows")
 
     def _on_section_moved(self, logical: int, old_visual: int, new_visual: int):
         """User dragged a table header: persist the new order and rebuild so the
@@ -451,12 +504,11 @@ class TimelineReportTab(QWidget):
         """One Avid marker per chosen row, at the clip's absolute record TC."""
         tl = self._timeline
         colour = self._marker_colour()
-        contexts = list(self._report.iter_ctx(tl))
         markers = []
         for i in indices:
-            if i >= len(contexts):
+            if i >= len(self._active_contexts):
                 continue
-            ctx = contexts[i]
+            ctx = self._active_contexts[i]
             markers.append(AvidMarker(
                 position=tl.start_tc + ctx.clip.rec_start,
                 track=ctx.clip.track,

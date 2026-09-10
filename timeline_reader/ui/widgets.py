@@ -229,6 +229,9 @@ class _SortProxy(QSortFilterProxyModel):
 class ReportTable(QTableView):
     """A read-only, sortable, nicely-defaulted table view."""
 
+    #: Emitted when Delete/Backspace is pressed with rows selected.
+    deleteKeyPressed = Signal()
+
     #: Column whose ascending order is the default when data (re)loads.
     _DEFAULT_SORT = "#"
 
@@ -298,6 +301,11 @@ class ReportTable(QTableView):
         # Escape clears the row selection (back to "export everything").
         if event.key() == Qt.Key_Escape and self.selectionModel().hasSelection():
             self.clearSelection()
+            event.accept()
+            return
+        # Delete / Backspace removes the selected rows (the tab does the work).
+        if event.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self.selectionModel().hasSelection():
+            self.deleteKeyPressed.emit()
             event.accept()
             return
         super().keyPressEvent(event)

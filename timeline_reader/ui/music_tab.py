@@ -43,6 +43,7 @@ from ..exporters import (
     write_avid_markers,
 )
 from ..models import Timeline
+from ..rowset import RowSet
 from ..timecode import frames_to_duration
 from .column_dialog import ColumnDialog
 from .report_tab import TIMELINE_EXTS, _ParseWorker
@@ -65,6 +66,7 @@ class MusicTab(QWidget):
         self._path: str = ""
         self._suppress_switch = False
         self._suppress_recompute = False
+        self._rowset = RowSet()  # which cues have been deleted
         self._build()
 
     # ---- layout -----------------------------------------------------------
@@ -105,6 +107,12 @@ class MusicTab(QWidget):
         self._deselect_sc = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
         self._deselect_sc.setContext(Qt.WidgetWithChildrenShortcut)
         self._deselect_sc.activated.connect(self.table.clearSelection)
+
+        # Delete/Backspace removes selected cues; ⌘Z undoes the last deletion.
+        self.table.deleteKeyPressed.connect(self._delete_selected)
+        self._undo_sc = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self._undo_sc.setContext(Qt.WidgetWithChildrenShortcut)
+        self._undo_sc.activated.connect(self._undo_delete)
 
         self._update_actions()
 
@@ -231,6 +239,12 @@ class MusicTab(QWidget):
         self.clear_sel_btn.clicked.connect(self.table.clearSelection)
         bar.addWidget(self.clear_sel_btn)
 
+        self.reset_rows_btn = QPushButton("Reset rows")
+        self.reset_rows_btn.setToolTip("Bring back every cue deleted since the file loaded")
+        self.reset_rows_btn.clicked.connect(self._reset_rows)
+        self.reset_rows_btn.hide()
+        bar.addWidget(self.reset_rows_btn)
+
         bar.addStretch(1)
         return bar
 
@@ -287,6 +301,7 @@ class MusicTab(QWidget):
 
     def _on_parsed(self, tl: Timeline):
         self._timeline = tl
+        self._rowset.reset()  # a fresh file starts with nothing deleted
         meta = f"{tl.source_format} · {tl.fps:g} fps · {len(tl.audio_clips)} audio clips"
         self.drop.show_loaded(tl.source_path, meta)
         self.format_badge.setText(tl.source_format)
@@ -344,12 +359,14 @@ class MusicTab(QWidget):
         if self._suppress_recompute:
             return
         settings.set_music_tracks(self._checked_tracks())
+        self._rowset.reset()  # different tracks -> a different set of cues
         self._recompute()
 
     def _on_option_changed(self, *_):
         settings.set_music_gap_seconds(self.gap.value())
         settings.set_music_include_dissolves(self.dissolves.isChecked())
         settings.set_music_include_muted(self.muted_cb.isChecked())
+        self._rowset.reset()  # different merge options -> a different set of cues
         self._recompute()
 
     # ---- report build -----------------------------------------------------
@@ -357,7 +374,7 @@ class MusicTab(QWidget):
         if self._timeline is None:
             return
         tracks = self._checked_tracks()
-        self._cues, cols, self._rows = music.build_rows(
+        all_cues, cols, all_rows = music.build_rows(
             self._timeline,
             tracks,
             self._selection,
@@ -365,10 +382,16 @@ class MusicTab(QWidget):
             include_dissolves=self.dissolves.isChecked(),
             include_muted=self.muted_cb.isChecked(),
         )
+        # Drop any cues the user deleted (identity survives column reorders; a
+        # change of tracks/options rebuilds different cues, so deletions lapse).
+        keys = [self._cue_key(c) for c in all_cues]
+        self._cues = self._rowset.active_items(keys, all_cues)
+        self._rows = self._rowset.active_items(keys, all_rows)
         self._col_ids = [c.id for c in cols]
         self._headers = [c.label for c in cols]
         self._row_durations = [cue.duration for cue in self._cues]
         self.table.set_data(self._headers, self._rows)
+        self.reset_rows_btn.setVisible(self._rowset.has_deletions)
         self._update_stats()
 
         warnings = list(self._timeline.warnings)
@@ -387,6 +410,40 @@ class MusicTab(QWidget):
             if self._rows else "No cues to export"
         )
         self._update_actions()
+
+    # ---- row deletion / undo / reset --------------------------------------
+    @staticmethod
+    def _cue_key(cue):
+        """A stable identity for a cue, so deletions survive a column reorder."""
+        return (cue.rec_in, cue.rec_out, cue.title, tuple(cue.tracks))
+
+    def _delete_selected(self):
+        if self._timeline is None:
+            return
+        sel = self.table.selected_rows()
+        if not sel:
+            return
+        active_keys = [self._cue_key(c) for c in self._cues]
+        n = self._rowset.delete_display(sel, active_keys)
+        if not n:
+            return
+        self.table.clearSelection()
+        self._recompute()
+        self.status.emit(f"Deleted {n} cue{'s' if n != 1 else ''} — ⌘Z to undo")
+
+    def _undo_delete(self):
+        if self._timeline is None or not self._rowset.can_undo:
+            return
+        n = self._rowset.undo()
+        self._recompute()
+        self.status.emit(f"Restored {n} cue{'s' if n != 1 else ''}")
+
+    def _reset_rows(self):
+        if not self._rowset.has_deletions:
+            return
+        self._rowset.reset()
+        self._recompute()
+        self.status.emit("Restored all cues")
 
     def _choose_columns(self):
         if self._timeline is None:
@@ -449,6 +506,8 @@ class MusicTab(QWidget):
         self._path = ""
         self._cues, self._rows = [], []
         self._headers, self._col_ids, self._row_durations = [], [], []
+        self._rowset.reset()
+        self.reset_rows_btn.hide()
         self.table.set_data(music.HEADERS_HINT, [])
         self._suppress_recompute = True
         self.track_list.clear()
