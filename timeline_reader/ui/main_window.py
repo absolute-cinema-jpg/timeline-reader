@@ -73,8 +73,8 @@ class MainWindow(QMainWindow):
                 lambda path, origin=tab: self._sync_timeline_file(origin, path)
             )
 
+        self.tabs.addTab(self.cliplist, "  All Clips  ")
         self.tabs.addTab(self.opticals, "  Opticals List  ")
-        self.tabs.addTab(self.cliplist, "  Clip List  ")
         self.tabs.addTab(self.music, "  Music Tracker  ")
         self.tabs.addTab(self.captions, "  SRT Generator  ")
         outer.addWidget(self.tabs, 1)
