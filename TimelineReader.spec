@@ -1,7 +1,16 @@
 # PyInstaller spec — builds "Timeline Reader.app" for macOS.
 # Build with:  ./build_app.sh   (or:  pyinstaller TimelineReader.spec)
 
+import re
+import pathlib
+
 from PyInstaller.utils.hooks import collect_submodules
+
+# Read the real app version from the package so the bundle's Info.plist stays
+# in step with timeline_reader/__init__.py (single source of truth).
+_init = pathlib.Path("timeline_reader/__init__.py").read_text(encoding="utf-8")
+_m = re.search(r'__version__\s*=\s*"([^"]+)"', _init)
+VERSION = _m.group(1) if _m else "0.0"
 
 hiddenimports = (
     collect_submodules("aaf2")
@@ -48,7 +57,8 @@ app = BUNDLE(
     bundle_identifier="com.timelinereader.app",
     info_plist={
         "NSHighResolutionCapable": True,
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleShortVersionString": VERSION,
+        "CFBundleVersion": VERSION,
         "NSRequiresAquaSystemAppearance": False,
         "CFBundleDocumentTypes": [
             {
