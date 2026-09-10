@@ -49,6 +49,16 @@ def _tc(frames_attr: str) -> Callable[[RowCtx], str]:
     return get
 
 
+def _src_tc(frames_attr: str) -> Callable[[RowCtx], str]:
+    """Like :func:`_tc` but blank for a transition — a dissolve / morph cut spans
+    a cut and has no single source, so its Src In / Out cells stay empty."""
+    def get(ctx: RowCtx) -> str:
+        if getattr(ctx.clip, "is_transition", False):
+            return ""
+        return frames_to_tc(getattr(ctx.clip, frames_attr), ctx.tl.fps, ctx.tl.drop)
+    return get
+
+
 _CORE_BEFORE = [
     ColumnDef("index", "#", "Core", True, lambda c: str(c.n)),
     ColumnDef("track", "Track", "Core", True, lambda c: c.clip.track),
@@ -64,8 +74,8 @@ _EFFECT_COLS = [
 _TIMECODES = [
     ColumnDef("rec_in", "Rec In", "Timecode", True, _tc("rec_start")),
     ColumnDef("rec_out", "Rec Out", "Timecode", True, _tc("rec_end")),
-    ColumnDef("src_in", "Src In", "Timecode", True, _tc("src_start")),
-    ColumnDef("src_out", "Src Out", "Timecode", True, _tc("src_end")),
+    ColumnDef("src_in", "Src In", "Timecode", True, _src_tc("src_start")),
+    ColumnDef("src_out", "Src Out", "Timecode", True, _src_tc("src_end")),
     ColumnDef("duration", "Duration", "Timecode", True,
               lambda c: frames_to_duration(c.clip.duration, c.tl.fps)),
     ColumnDef("effect_id", "Effect ID", "Effect", False,
@@ -144,6 +154,10 @@ class Report:
                     n += 1
                     yield RowCtx(tl, clip, n, eff)
             else:
+                # A transition is only meaningful in the effect-per-row (opticals)
+                # view; it is not a clip, so keep it out of the clip list.
+                if getattr(clip, "is_transition", False):
+                    continue
                 n += 1
                 yield RowCtx(tl, clip, n)
 

@@ -62,6 +62,7 @@ class Clip:
     head_transition: int = 0         # incoming dissolve length, frames (audio cues)
     tail_transition: int = 0         # outgoing dissolve length, frames (audio cues)
     muted: bool = False              # clip sits on a muted (audio-mixer) track
+    is_transition: bool = False      # a transition (dissolve / morph cut), not a clip
 
     @property
     def duration(self) -> int:
