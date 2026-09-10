@@ -281,7 +281,6 @@ class TimelineReportTab(QWidget):
             self.warn.show()
         else:
             self.warn.hide()
-        self.row_count.setText(f"{len(self._rows)} rows ready to export")
         self._update_actions()
         self.status.emit(
             f"Loaded {os.path.basename(tl.source_path)} — {len(self._rows)} rows"
@@ -330,11 +329,20 @@ class TimelineReportTab(QWidget):
         self._on_selection_changed()
 
     def _on_selection_changed(self, *_):
-        """Keep the export controls in sync with the row selection so it's always
-        clear whether you'll export everything or just the highlighted rows."""
+        """Keep the export controls and count label in sync with the row selection
+        so it's always clear whether you'll export everything or just the
+        highlighted rows."""
+        total = len(self._rows)
         n = len(self.table.selected_rows()) if self._rows else 0
         self.export_btn.setText(f"Export {n} selected…" if n else "Export all…")
         self.clear_sel_btn.setEnabled(n > 0)
+        if not total:
+            self.row_count.setText(self._empty_hint)
+        elif n:
+            self.row_count.setText(f"{n} of {total} rows selected")
+        else:
+            noun = "row" if total == 1 else "rows"
+            self.row_count.setText(f"{total} {noun} ready to export")
         self._update_stats()
 
     def _update_stats(self):
@@ -373,7 +381,6 @@ class TimelineReportTab(QWidget):
         self._row_durations = [ctx.clip.duration for ctx in self._report.iter_ctx(self._timeline)]
         self.table.set_data(self._headers, self._rows)
         self._update_stats()
-        self.row_count.setText(f"{len(self._rows)} rows · {len(self._headers)} columns")
         self._update_actions()
 
     def _on_section_moved(self, logical: int, old_visual: int, new_visual: int):

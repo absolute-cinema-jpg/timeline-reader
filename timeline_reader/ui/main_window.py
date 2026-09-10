@@ -27,7 +27,7 @@ from .report_tab import TimelineReportTab
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{__app_name__}")
+        self.setWindowTitle(f"{__app_name__} v{__version__}")
         self.resize(1180, 760)
         self.setMinimumSize(920, 560)
 
