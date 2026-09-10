@@ -3,10 +3,6 @@
 A translation layer for Avid Media Composer. Drop in a timeline export and get
 clean department reports as spreadsheets — no manual timeline study required.
 
-It reads **Avid bins (`.avb`)**, **EDLs (CMX3600)**, **AAF**, and
-**tab-delimited** bin exports, and produces its reports through a dark,
-DaVinci-Resolve-style interface.
-
 ## Features
 
 ### 1. Opticals List
