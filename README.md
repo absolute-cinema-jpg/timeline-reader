@@ -82,10 +82,18 @@ Exports default to the **chosen sequence's name** (e.g. `THR_L_260721.csv`).
 > contains no markers. It reads `avb.misc.Marker` comments wherever they attach;
 > share a bin with locators and it can be confirmed/tuned.
 
-Each report can be **exported to CSV, TSV, Excel (`.xlsx`) or OpenDocument
-(`.ods`)** — SRT for captions — or copied to the clipboard. Excel/ODS exports
-carry a bold, frozen header row (with an auto-filter in Excel). If a selection
-is active, only the selected rows are exported.
+Each report can be **exported to CSV, TSV, Excel (`.xlsx`), OpenDocument
+(`.ods`) or Avid Markers (`.txt`)** — SRT for captions — or copied to the
+clipboard. Excel/ODS exports carry a bold, frozen header row (with an
+auto-filter in Excel). If a selection is active, only the selected rows are
+exported.
+
+**Markers (`.txt`)** writes a Media Composer marker-import file — one marker per
+row, placed at the row's record timecode — so a report round-trips back onto the
+timeline. The marker's name / comment are filled per report: Opticals uses the
+Effect as the marker name and the Notes as its comment; the Music Tracker leaves
+the name blank and sets the comment to `Artist - Track (Duration)`; the Clip List
+uses the clip name; and the Markers tab reproduces the loaded locators.
 
 ### Remembered between sessions
 The app remembers, via `QSettings` (`timeline_reader/settings.py`): the folder

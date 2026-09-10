@@ -32,12 +32,15 @@ from PySide6.QtWidgets import (
 from .. import music, settings
 from ..columns import ColumnSelection
 from ..exporters import (
+    AvidMarker,
+    MARKERS_KIND,
     export_table,
     format_at,
     format_labels,
     index_of_kind,
     kind_at,
     rows_to_delimited,
+    write_avid_markers,
 )
 from ..models import Timeline
 from ..timecode import frames_to_duration
@@ -475,10 +478,32 @@ class MusicTab(QWidget):
             return [self._rows[i] for i in sel], True
         return self._rows, False
 
+    def _build_markers(self, indices) -> list[AvidMarker]:
+        """One marker per chosen cue: blank name, comment 'Artist - Track (Duration)'."""
+        markers = []
+        for i in indices:
+            if i >= len(self._cues):
+                continue
+            cue = self._cues[i]
+            dur = frames_to_duration(cue.duration, cue.fps)
+            artist = (cue.artist or "").strip()
+            title = (cue.title or "").strip()
+            comment = f"{artist} - {title} ({dur})" if artist else f"{title} ({dur})"
+            markers.append(AvidMarker(
+                position=cue.rec_in,               # already absolute (incl. start TC)
+                track=cue.tracks[0] if cue.tracks else "A1",
+                colour="Green",
+                name="",
+                comment=comment,
+            ))
+        return markers
+
     def _export(self):
         if not self._rows:
             return
-        rows, is_selection = self._selected_or_all_rows()
+        sel = self.table.selected_rows()
+        indices = sel if sel else list(range(len(self._rows)))
+        is_selection = bool(sel)
         _label, ext, filt, kind = format_at(self.fmt.currentIndex())
         input_dir = os.path.dirname(os.path.abspath(self._path)) if self._path else ""
         start = settings.export_start_path(self._suggested_name(), input_dir)
@@ -488,15 +513,23 @@ class MusicTab(QWidget):
         if not path.lower().endswith(ext):
             path += ext
         try:
-            export_table(
-                path, self._headers, rows, kind,
-                sheet_name=f"{self._base_name()} music",
-            )
+            if kind == MARKERS_KIND:
+                write_avid_markers(
+                    path, self._build_markers(indices),
+                    self._timeline.fps, self._timeline.drop,
+                )
+            else:
+                rows = [self._rows[i] for i in indices]
+                export_table(
+                    path, self._headers, rows, kind,
+                    sheet_name=f"{self._base_name()} music",
+                )
         except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
         settings.remember_export_path(path)
-        what = f"{len(rows)} selected cues" if is_selection else f"{len(rows)} cues"
+        noun = "markers" if kind == MARKERS_KIND else "cues"
+        what = f"{len(indices)} selected {noun}" if is_selection else f"{len(indices)} {noun}"
         self.status.emit(f"Exported {what} → {path}")
         QMessageBox.information(
             self, "Export complete", f"Wrote {what} to:\n{path}",

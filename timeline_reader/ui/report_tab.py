@@ -26,12 +26,15 @@ from PySide6.QtWidgets import (
 from ..columns import ColumnSelection, Report
 from .. import settings
 from ..exporters import (
+    AvidMarker,
+    MARKERS_KIND,
     export_table,
     format_at,
     format_labels,
     index_of_kind,
     kind_at,
     rows_to_delimited,
+    write_avid_markers,
 )
 from ..models import Timeline
 from ..parsers import ParseError, parse_timeline
@@ -405,9 +408,10 @@ class TimelineReportTab(QWidget):
         return base or self._export_basename
 
     def _suggested_name(self):
-        # Default filename is just the chosen sequence's name.
-        _label, ext, _filt, _kind = format_at(self.fmt.currentIndex())
-        return f"{self._base_name()}{ext}"
+        # Default filename is the chosen sequence's name (+ _markers for markers).
+        _label, ext, _filt, kind = format_at(self.fmt.currentIndex())
+        suffix = "_markers" if kind == MARKERS_KIND else ""
+        return f"{self._base_name()}{suffix}{ext}"
 
     def _selected_or_all_rows(self):
         """Rows to output: just the selected ones (in on-screen order) if the
@@ -417,10 +421,34 @@ class TimelineReportTab(QWidget):
             return [self._rows[i] for i in sel], True
         return self._rows, False
 
+    def _selected_indices(self):
+        """Row indices to output (selection, else all) — the on-screen order."""
+        sel = self.table.selected_rows()
+        return sel if sel else list(range(len(self._rows)))
+
+    def _build_markers(self, indices) -> list[AvidMarker]:
+        """One Avid marker per chosen row, at the clip's absolute record TC."""
+        tl = self._timeline
+        contexts = list(self._report.iter_ctx(tl))
+        markers = []
+        for i in indices:
+            if i >= len(contexts):
+                continue
+            ctx = contexts[i]
+            markers.append(AvidMarker(
+                position=tl.start_tc + ctx.clip.rec_start,
+                track=ctx.clip.track,
+                colour=self._report.marker_colour,
+                name=self._report.marker_name(ctx) if self._report.marker_name else "",
+                comment=self._report.marker_comment(ctx) if self._report.marker_comment else "",
+            ))
+        return markers
+
     def _export(self):
         if not self._rows:
             return
-        rows, is_selection = self._selected_or_all_rows()
+        indices = self._selected_indices()
+        is_selection = bool(self.table.selected_rows())
         _label, ext, filt, kind = format_at(self.fmt.currentIndex())
         input_dir = os.path.dirname(os.path.abspath(self._path)) if self._path else ""
         start = settings.export_start_path(self._suggested_name(), input_dir)
@@ -430,12 +458,20 @@ class TimelineReportTab(QWidget):
         if not path.lower().endswith(ext):
             path += ext
         try:
-            export_table(path, self._headers, rows, kind, sheet_name=self._base_name())
+            if kind == MARKERS_KIND:
+                write_avid_markers(
+                    path, self._build_markers(indices),
+                    self._timeline.fps, self._timeline.drop,
+                )
+            else:
+                rows = [self._rows[i] for i in indices]
+                export_table(path, self._headers, rows, kind, sheet_name=self._base_name())
         except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
         settings.remember_export_path(path)
-        what = f"{len(rows)} selected rows" if is_selection else f"{len(rows)} rows"
+        noun = "markers" if kind == MARKERS_KIND else "rows"
+        what = f"{len(indices)} selected {noun}" if is_selection else f"{len(indices)} {noun}"
         self.status.emit(f"Exported {what} → {path}")
         QMessageBox.information(
             self, "Export complete",

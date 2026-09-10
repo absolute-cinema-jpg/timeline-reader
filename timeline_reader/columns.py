@@ -127,6 +127,10 @@ class Report:
     builtin: list[ColumnDef]
     per_effect: bool                          # opticals iterate effects; clip list iterates clips
     optical_only: bool = False
+    # Avid-marker export mapping: what each row becomes as a marker.
+    marker_name: "Callable[[RowCtx], str] | None" = None       # column 7 (short name)
+    marker_comment: "Callable[[RowCtx], str] | None" = None    # column 5 (main text)
+    marker_colour: str = "Red"
 
     def all_columns(self, tl: Timeline) -> list[ColumnDef]:
         """Built-in columns followed by one column per discovered metadata key."""
@@ -180,8 +184,18 @@ class Report:
         return [c.label for c in cols], rows
 
 
-OPTICALS_REPORT = Report("opticals", _opticals_builtin(), per_effect=True, optical_only=True)
-CLIPLIST_REPORT = Report("cliplist", _cliplist_builtin(), per_effect=False)
+OPTICALS_REPORT = Report(
+    "opticals", _opticals_builtin(), per_effect=True, optical_only=True,
+    marker_name=lambda ctx: ctx.effect.category if ctx.effect else "",
+    marker_comment=lambda ctx: ctx.effect.detail if ctx.effect else "",
+    marker_colour="Red",
+)
+CLIPLIST_REPORT = Report(
+    "cliplist", _cliplist_builtin(), per_effect=False,
+    marker_name=lambda ctx: "",
+    marker_comment=lambda ctx: ctx.clip.clip_name,
+    marker_colour="Blue",
+)
 
 
 # --------------------------------------------------------------------------- #

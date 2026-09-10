@@ -9,7 +9,11 @@ leading zeros and clip names exactly as shown in the app.
 from __future__ import annotations
 
 import csv
+import getpass
 import io
+from dataclasses import dataclass
+
+from .timecode import frames_to_tc
 
 # (combo label, file extension, file-dialog filter, kind)
 EXPORT_FORMATS: list[tuple[str, str, str, str]] = [
@@ -17,7 +21,10 @@ EXPORT_FORMATS: list[tuple[str, str, str, str]] = [
     ("TSV (.tsv)", ".tsv", "TSV (*.tsv)", "tsv"),
     ("Excel (.xlsx)", ".xlsx", "Excel workbook (*.xlsx)", "xlsx"),
     ("OpenDocument (.ods)", ".ods", "OpenDocument spreadsheet (*.ods)", "ods"),
+    ("Markers (.txt)", ".txt", "Avid markers (*.txt)", "markers"),
 ]
+
+MARKERS_KIND = "markers"
 
 
 def format_labels() -> list[str]:
@@ -79,6 +86,59 @@ def write_delimited(path: str, headers: list[str], rows: list[list[str]], delimi
 
 
 def write_text(path: str, text: str) -> None:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
+# --------------------------------------------------------------------------- #
+# Avid markers (.txt) — the format Media Composer's "Export Markers" produces
+# --------------------------------------------------------------------------- #
+@dataclass
+class AvidMarker:
+    """One row of an Avid marker export, placed at an absolute record TC."""
+
+    position: int              # absolute record position, frames (incl. start TC)
+    track: str = "V1"
+    colour: str = "Red"
+    name: str = ""             # short marker name (column 7)
+    comment: str = ""          # marker comment / main text (column 5)
+    duration: int = 1          # frames (1 = point marker)
+    author: str = ""           # creator name (column 1); defaults to the OS user
+
+
+def _default_author() -> str:
+    try:
+        return getpass.getuser() or "Timeline Reader"
+    except Exception:  # noqa: BLE001
+        return "Timeline Reader"
+
+
+def write_avid_markers(path: str, markers: list["AvidMarker"], fps: float = 25.0,
+                       drop: bool = False) -> None:
+    """Write markers in Media Composer's tab-delimited marker-export layout:
+
+        author  TC  track  colour  comment  duration  name  colour
+
+    (matches ``02-refs/markers/markers.txt``). One marker per line, placed at
+    each marker's record timecode; a trailing newline closes the file.
+    """
+    default_author = _default_author()
+    lines = []
+    for m in markers:
+        tc = frames_to_tc(int(m.position), fps, drop)
+        colour = m.colour or "Red"
+        duration = m.duration if m.duration and m.duration > 0 else 1
+        lines.append("\t".join([
+            m.author or default_author,
+            tc,
+            m.track or "V1",
+            colour,
+            m.comment,
+            str(duration),
+            m.name,
+            colour,
+        ]))
+    text = ("\n".join(lines) + "\n") if lines else ""
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
 

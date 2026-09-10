@@ -26,12 +26,15 @@ from PySide6.QtWidgets import (
 
 from .. import settings
 from ..exporters import (
+    AvidMarker,
+    MARKERS_KIND,
     export_table,
     format_at,
     format_labels,
     index_of_kind,
     kind_at,
     rows_to_delimited,
+    write_avid_markers,
 )
 from ..models import Marker, Timeline
 from ..timecode import frames_to_duration, frames_to_tc
@@ -272,6 +275,22 @@ class MarkersTab(QWidget):
         self.copy_btn.setEnabled(has)
 
     # ---- output -----------------------------------------------------------
+    def _build_markers(self) -> list[AvidMarker]:
+        """Round-trip the loaded markers to Avid's marker format (absolute TC)."""
+        tl = self._timeline
+        return [
+            AvidMarker(
+                position=tl.start_tc + m.position,
+                track=m.track,
+                colour=m.colour or "Red",
+                name="",
+                comment=m.comment,
+                duration=m.length or 1,
+                author=m.user,
+            )
+            for m in tl.markers
+        ]
+
     def _base_name(self) -> str:
         base = self._timeline.name if self._timeline else "markers"
         base = "".join(c if c.isalnum() or c in "-_ " else "_" for c in base).strip()
@@ -293,7 +312,14 @@ class MarkersTab(QWidget):
         if not path.lower().endswith(ext):
             path += ext
         try:
-            export_table(path, list(_HEADERS), self._rows, kind, sheet_name=f"{self._base_name()} markers")
+            if kind == MARKERS_KIND:
+                write_avid_markers(
+                    path, self._build_markers(),
+                    self._timeline.fps, self._timeline.drop,
+                )
+            else:
+                export_table(path, list(_HEADERS), self._rows, kind,
+                             sheet_name=f"{self._base_name()} markers")
         except (OSError, RuntimeError) as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
