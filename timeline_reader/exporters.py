@@ -26,6 +26,12 @@ EXPORT_FORMATS: list[tuple[str, str, str, str]] = [
 
 MARKERS_KIND = "markers"
 
+# The marker colours Media Composer offers, in its own menu order. These are the
+# only names the marker-import (.txt) format accepts.
+AVID_MARKER_COLOURS: list[str] = [
+    "Red", "Green", "Blue", "Cyan", "Magenta", "Yellow", "Black", "White",
+]
+
 
 def format_labels() -> list[str]:
     return [f[0] for f in EXPORT_FORMATS]
@@ -113,15 +119,48 @@ def _default_author() -> str:
         return "Timeline Reader"
 
 
-def write_avid_markers(path: str, markers: list["AvidMarker"], fps: float = 25.0,
-                       drop: bool = False) -> None:
-    """Write markers in Media Composer's tab-delimited marker-export layout:
+def _track_index(track: str) -> int:
+    """Video-track number from a name like ``"V3"`` (1 if unrecognised)."""
+    digits = "".join(ch for ch in (track or "") if ch.isdigit())
+    return int(digits) if digits else 1
+
+
+def _stagger_tracks(markers: list["AvidMarker"]) -> None:
+    """Spread markers that share a timecode onto separate, ascending tracks.
+
+    Two markers on the same track at the same TC (e.g. a dissolve and an
+    animatte landing together) stack messily on re-import. For each group of
+    markers at one timecode we keep them on distinct tracks, each at least one
+    above the last — starting from each marker's own track, so markers already
+    on different tracks are left where they are. Mutates ``markers`` in place.
+    """
+    from collections import defaultdict
+
+    groups: dict[int, list[AvidMarker]] = defaultdict(list)
+    for m in markers:
+        groups[int(m.position)].append(m)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda m: _track_index(m.track))
+        floor = 0
+        for m in group:
+            t = max(_track_index(m.track), floor + 1)
+            m.track = f"V{t}"
+            floor = t
+
+
+def markers_to_text(markers: list["AvidMarker"], fps: float = 25.0,
+                    drop: bool = False) -> str:
+    """Render markers in Media Composer's tab-delimited marker layout:
 
         author  TC  track  colour  comment  duration  name  colour
 
-    (matches ``02-refs/markers/markers.txt``). One marker per line, placed at
-    each marker's record timecode; a trailing newline closes the file.
+    (matches ``02-refs/markers/markers.txt``). One marker per line at its record
+    timecode, with same-timecode markers staggered onto separate tracks; a
+    trailing newline closes the text.
     """
+    _stagger_tracks(markers)
     default_author = _default_author()
     lines = []
     for m in markers:
@@ -138,9 +177,14 @@ def write_avid_markers(path: str, markers: list["AvidMarker"], fps: float = 25.0
             m.name,
             colour,
         ]))
-    text = ("\n".join(lines) + "\n") if lines else ""
+    return ("\n".join(lines) + "\n") if lines else ""
+
+
+def write_avid_markers(path: str, markers: list["AvidMarker"], fps: float = 25.0,
+                       drop: bool = False) -> None:
+    """Write markers to *path* in Media Composer's marker-import layout."""
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
+        fh.write(markers_to_text(markers, fps, drop))
 
 
 def delimiter_for(path: str) -> str:

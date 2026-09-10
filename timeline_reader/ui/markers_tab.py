@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from .. import settings
 from ..exporters import (
+    AVID_MARKER_COLOURS,
     AvidMarker,
     MARKERS_KIND,
     export_table,
@@ -33,6 +34,7 @@ from ..exporters import (
     format_labels,
     index_of_kind,
     kind_at,
+    markers_to_text,
     rows_to_delimited,
     write_avid_markers,
 )
@@ -151,13 +153,19 @@ class MarkersTab(QWidget):
         bar.addWidget(self.row_count)
         bar.addStretch(1)
 
+        # Marker-colour override — left of Format, only shown for Markers (.txt).
+        self.colour_label = QLabel("Marker colour:")
+        bar.addWidget(self.colour_label)
+        self.colour_combo = QComboBox()
+        self.colour_combo.addItem("Keep original")
+        self.colour_combo.addItems(AVID_MARKER_COLOURS)
+        bar.addWidget(self.colour_combo)
+
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
         self.fmt.addItems(format_labels())
         self.fmt.setCurrentIndex(index_of_kind(settings.export_format_kind()))
-        self.fmt.currentIndexChanged.connect(
-            lambda i: settings.set_export_format_kind(kind_at(i))
-        )
+        self.fmt.currentIndexChanged.connect(self._on_format_changed)
         bar.addWidget(self.fmt)
 
         self.copy_btn = QPushButton("Copy")
@@ -168,7 +176,22 @@ class MarkersTab(QWidget):
         self.export_btn.setObjectName("Primary")
         self.export_btn.clicked.connect(self._export)
         bar.addWidget(self.export_btn)
+        self._sync_colour_visibility()
         return bar
+
+    def _on_format_changed(self, index: int):
+        settings.set_export_format_kind(kind_at(index))
+        self._sync_colour_visibility()
+
+    def _sync_colour_visibility(self):
+        show = kind_at(self.fmt.currentIndex()) == MARKERS_KIND
+        self.colour_label.setVisible(show)
+        self.colour_combo.setVisible(show)
+
+    def _colour_override(self) -> str | None:
+        """Chosen marker colour, or ``None`` to keep each marker's own colour."""
+        i = self.colour_combo.currentIndex()
+        return None if i <= 0 else self.colour_combo.currentText()
 
     # ---- loading ----------------------------------------------------------
     def _on_file(self, path: str):
@@ -278,11 +301,12 @@ class MarkersTab(QWidget):
     def _build_markers(self) -> list[AvidMarker]:
         """Round-trip the loaded markers to Avid's marker format (absolute TC)."""
         tl = self._timeline
+        override = self._colour_override()
         return [
             AvidMarker(
                 position=tl.start_tc + m.position,
                 track=m.track,
-                colour=m.colour or "Red",
+                colour=override or m.colour or "Red",
                 name="",
                 comment=m.comment,
                 duration=m.length or 1,
@@ -332,6 +356,13 @@ class MarkersTab(QWidget):
 
     def _copy(self):
         if not self._rows:
+            return
+        if kind_at(self.fmt.currentIndex()) == MARKERS_KIND:
+            text = markers_to_text(
+                self._build_markers(), self._timeline.fps, self._timeline.drop
+            )
+            QApplication.clipboard().setText(text)
+            self.status.emit("Copied Avid markers to clipboard (.txt)")
             return
         text = rows_to_delimited(_HEADERS, self._rows, "\t")
         QApplication.clipboard().setText(text)

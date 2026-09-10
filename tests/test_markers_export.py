@@ -10,10 +10,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from timeline_reader.columns import CLIPLIST_REPORT, OPTICALS_REPORT, ColumnSelection
 from timeline_reader.exporters import (
+    AVID_MARKER_COLOURS,
     MARKERS_KIND,
     AvidMarker,
     format_labels,
     index_of_kind,
+    markers_to_text,
     write_avid_markers,
 )
 from timeline_reader.models import Clip, Effect, Timeline
@@ -35,6 +37,38 @@ def test_avid_marker_line_layout():
     assert line.split("\t") == [
         "alex", "00:01:02:02", "V1", "Red", "Scale 145%", "1", "3D Warp", "Red",
     ]
+
+
+def _tracks_at(text: str) -> list[str]:
+    return [line.split("\t")[2] for line in text.splitlines()]
+
+
+def test_same_timecode_markers_staggered_onto_separate_tracks():
+    # A dissolve and an animatte landing on the same frame, both on V1.
+    markers = [
+        AvidMarker(position=1000, track="V1", comment="dissolve"),
+        AvidMarker(position=1000, track="V1", comment="animatte"),
+        AvidMarker(position=2000, track="V1", comment="lone"),
+    ]
+    text = markers_to_text(markers, fps=25.0)
+    assert _tracks_at(text) == ["V1", "V2", "V1"]  # collision bumps up; lone stays
+
+
+def test_stagger_preserves_distinct_tracks_and_steps_above_them():
+    markers = [
+        AvidMarker(position=500, track="V3", comment="a"),
+        AvidMarker(position=500, track="V3", comment="b"),
+        AvidMarker(position=500, track="V4", comment="c"),
+    ]
+    # Sorted by track then bumped: V3, then V4 (above V3), then V5 (above V4).
+    assert _tracks_at(markers_to_text(markers, fps=25.0)) == ["V3", "V4", "V5"]
+
+
+def test_colour_override_applies_to_both_colour_columns():
+    assert "Green" in AVID_MARKER_COLOURS
+    m = AvidMarker(position=100, track="V1", colour="Green", comment="x")
+    cols = markers_to_text([m], fps=25.0).split("\t")
+    assert cols[3] == "Green" and cols[7].strip() == "Green"
 
 
 def _optical_timeline() -> Timeline:
