@@ -9,3 +9,4 @@ assets/AppIcon.iconset/
 # Not tracked — local reference/test data only
 01-test files/
 02-refs/
+.venv-universal/

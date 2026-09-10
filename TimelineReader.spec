@@ -1,6 +1,7 @@
 # PyInstaller spec — builds "Timeline Reader.app" for macOS.
 # Build with:  ./build_app.sh   (or:  pyinstaller TimelineReader.spec)
 
+import os
 import re
 import pathlib
 
@@ -11,6 +12,11 @@ from PyInstaller.utils.hooks import collect_submodules
 _init = pathlib.Path("timeline_reader/__init__.py").read_text(encoding="utf-8")
 _m = re.search(r'__version__\s*=\s*"([^"]+)"', _init)
 VERSION = _m.group(1) if _m else "0.0"
+
+# Target architecture: default to the building interpreter's arch. Set
+# TLR_TARGET_ARCH=universal2 (with a universal2 Python + universal2 wheels) to
+# produce one bundle that runs on both Apple Silicon and Intel.
+TARGET_ARCH = os.environ.get("TLR_TARGET_ARCH") or None
 
 hiddenimports = (
     collect_submodules("aaf2")
@@ -43,6 +49,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=True,
+    target_arch=TARGET_ARCH,
 )
 coll = COLLECT(
     exe,
