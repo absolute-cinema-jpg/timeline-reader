@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.cliplist, "  Clip List  ")
         self.tabs.addTab(self.markers, "  Markers  ")
         self.tabs.addTab(self.music, "  Music Tracker  ")
-        self.tabs.addTab(self.captions, "  Captions → SRT  ")
+        self.tabs.addTab(self.captions, "  SRT Generator  ")
         outer.addWidget(self.tabs, 1)
 
         self.setCentralWidget(root)
