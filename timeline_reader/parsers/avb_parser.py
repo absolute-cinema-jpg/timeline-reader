@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 
 from ..effects import classify
+from ..keyframes import describe_motion, summarize_keyframes
 from ..models import Clip, Effect, SequenceOption, Timeline
 from ..timecode import frames_to_tc
 from . import ParseError
@@ -95,16 +96,23 @@ def _walk_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> N
         length = int(getattr(comp, "length", 0) or 0)
         cname = type(comp).__name__
         if cname == "TransitionEffect":
-            # A transition overlaps the surrounding cut: back up so the
-            # following clip starts under it rather than after it.
+            # A transition overlaps the surrounding cut: it spans [pos - length,
+            # pos] and the following clip is pulled back to start under it. It is
+            # an optical in its own right (dissolve, morph cut), so emit it as its
+            # own row — no clip name / tape / source, just its record range.
+            trans: list[Effect] = []
+            _collect_effects(comp, trans, 0, fps, drop)
+            if trans:
+                tl.add(Clip(
+                    index=0, track=track_name, rec_start=pos - length, rec_end=pos,
+                    fps=fps, drop=drop, effects=trans, is_transition=True,
+                ))
             pos -= length
             continue
         if isinstance(comp, Filler):
             pos += length
             continue
 
-        effects: list[Effect] = []
-        _collect_effects(comp, effects)
         src = _first_source_clip(comp)
         clip = Clip(
             index=0,
@@ -113,16 +121,20 @@ def _walk_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> N
             rec_end=pos + length,
             fps=fps,
             drop=drop,
-            effects=effects,
         )
         _collect_markers(comp, clip)  # sequence-level locators within this segment
         if src is not None:
-            _resolve_source(src, clip)
-        elif effects:
+            _resolve_source(src, clip)  # sets src_start, needed for keyframe timecodes
+
+        # Effects are collected after the source is resolved so each keyframe's
+        # time can be reported as the clip's *source* timecode.
+        effects: list[Effect] = []
+        _collect_effects(comp, effects, clip.src_start, fps, drop)
+        clip.effects = effects
+
+        if src is None:
             # Generator / matte / title segment with no underlying source clip.
-            clip.clip_name = f"[{effects[0].name}]"
-        else:
-            clip.clip_name = "(no source)"
+            clip.clip_name = f"[{effects[0].name}]" if effects else "(no source)"
         tl.add(clip)
         pos += length
 
@@ -241,58 +253,54 @@ def _read_start_tc(comp, fps: float) -> int:
     return fallback
 
 
-def _collect_effects(node, effects: list[Effect], guard: int = 0) -> None:
+def _collect_effects(
+    node, effects: list[Effect], src_start: int, fps: float, drop: bool, guard: int = 0
+) -> None:
     """Gather every effect node in a component's subtree (this timeline only).
 
     Blend effects such as 3D Warp and Resize keep the real clip in a *foreground*
     track while the background track is filler, so we must search all nested
     tracks and sequences rather than descend a single branch. Referenced mobs
     are never followed here — only the composed timeline component.
+
+    ``src_start`` (the clip's source-in) with ``fps``/``drop`` let each effect's
+    keyframes be reported as source timecodes in the Notes column.
     """
     if node is None or guard > 32:
         return
     cname = type(node).__name__
     if cname in ("TrackEffect", "MotionEffect", "TransitionEffect"):
-        _record_effect(node, effects)
+        _record_effect(node, effects, src_start, fps, drop)
     pd = getattr(node, "property_data", {})
     for tr in pd.get("tracks", []) or []:
-        _collect_effects(getattr(tr, "component", None), effects, guard + 1)
+        _collect_effects(getattr(tr, "component", None), effects, src_start, fps, drop, guard + 1)
     if isinstance(node, Sequence):
         for c in node.components:
-            _collect_effects(c, effects, guard + 1)
+            _collect_effects(c, effects, src_start, fps, drop, guard + 1)
 
 
-def _record_effect(node, effects: list[Effect]) -> None:
+def _record_effect(node, effects: list[Effect], src_start: int, fps: float, drop: bool) -> None:
     pd = getattr(node, "property_data", {})
     eid = pd.get("effect_id")
     attrs = pd.get("attributes") or {}
     plugin = attrs.get("_EFFECT_PLUGIN_NAME") if hasattr(attrs, "get") else None
     category, _ = classify(eid, plugin)
+    node_type = type(node).__name__
     detail = ""
-    if type(node).__name__ == "MotionEffect":
-        detail = _motion_detail(node)
-        if category in ("Effect", "") or not category:
-            category = "Timewarp"
+    if node_type == "MotionEffect":
+        # A motion effect resolves to Timewarp / Freeze Frame / Trim to Fill and a
+        # speed from its offset & speed maps (the raw effect id is unreliable here).
+        category, detail = describe_motion(node, src_start, fps, drop)
+    elif node_type == "TransitionEffect":
+        detail = ""  # a dissolve / morph cut is named by its category; no keyframes
+    else:
+        detail = summarize_keyframes(node, src_start, fps, drop)
     # MotionEffects carry no plugin name; fall back to the readable category
     # rather than the raw Avid effect id (e.g. "EFF_ADV_MOTION_CTL").
-    name = plugin or category or eid or type(node).__name__
+    name = plugin or category or eid or node_type
     effects.append(
         Effect(category=category, name=name, effect_id=eid or "", detail=detail)
     )
-
-
-def _motion_detail(node) -> str:
-    pd = getattr(node, "property_data", {})
-    speed = pd.get("speed_ratio") or pd.get("speed")
-    if speed:
-        try:
-            num, den = speed
-            if den:
-                pct = 100.0 * num / den
-                return f"{pct:g}%" + (" (reverse)" if pct < 0 else "")
-        except (TypeError, ValueError):
-            return str(speed)
-    return "Motion effect"
 
 
 # --------------------------------------------------------------------------- #
@@ -319,9 +327,13 @@ def _resolve_source(src, clip: Clip, media_kind: str = "picture") -> None:
             _collect_markers(getattr(tr, "component", None), clip)  # master-clip locators
         cur = _next_in_chain(m, cur.track_id, media_kind)
 
-    length = clip.rec_end - clip.rec_start
+    # Source duration comes from the source clip itself, not the record length:
+    # a motion effect (timewarp / fit-to-fill) consumes a different number of
+    # source frames than it occupies on the timeline, so the top SourceClip's
+    # length is the real source span. For a plain cut the two are equal.
+    src_len = int(getattr(src, "length", 0) or 0) or (clip.rec_end - clip.rec_start)
     clip.src_start = offset
-    clip.src_end = offset + length
+    clip.src_end = offset + src_len
     if not clip.clip_name:
         clip.clip_name = clip.tape_name or "(unnamed)"
 

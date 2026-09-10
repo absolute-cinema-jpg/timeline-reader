@@ -38,6 +38,162 @@ def test_effect_classification():
     assert is_optical_category("Colour Correction") is False
 
 
+class _Obj:
+    """Duck-typed stand-in for a pyavb node (only ``property_data`` matters)."""
+
+    def __init__(self, **data):
+        self.property_data = data
+
+
+def _param(uuid, offsets_values):
+    points = [_Obj(offset=off, value=val) for off, val in offsets_values]
+    return _Obj(uuid=uuid, control_track=_Obj(control_points=points))
+
+
+# Well-known Avid parameter UUIDs (from avb.parameter_uuids).
+_POS_Y = "8d568126-847e-11d5-935a-50f857c10000"
+_SCALE_X = "8d568129-847e-11d5-935a-50f857c10000"
+_SCALE_Y = "8d56812a-847e-11d5-935a-50f857c10000"
+_CROP_L = "8d56812e-847e-11d5-935a-50f857c10000"
+_OFFSET_MAP = "8d56827a-847e-11d5-935a-50f857c10000"
+_SPEED_MAP = "8d56827c-847e-11d5-935a-50f857c10000"
+_SPEED_OFFSET_MAP = "8d56827d-847e-11d5-935a-50f857c10000"
+
+
+def test_keyframes_resolve_to_source_timecode():
+    from timeline_reader.keyframes import summarize_keyframes
+
+    node = _Obj(length=50, param_list=[
+        _param(_POS_Y, [([0, 1], 49.0), ([50, 1], 78.0)]),
+        _param(_SCALE_X, [([0, 1], 116.0), ([50, 1], 121.0)]),
+        _param(_CROP_L, [([0, 1], 0.0), ([50, 1], 0.0)]),  # constant -> skipped
+    ])
+    # src_start = 1h in frames -> keyframe at offset 0 == src-in, offset 50 == +2s.
+    src_in = 25 * 60 * 60  # 01:00:00:00 at 25 fps
+    out = summarize_keyframes(node, src_start=src_in, fps=25.0, drop=False)
+    assert "Pos Y: 49@01:00:00:00, 78@01:00:02:00" in out
+    assert "Scale X: 116@01:00:00:00, 121@01:00:02:00" in out
+    assert "Crop Left" not in out  # unchanged parameter is not a keyframe
+
+
+def test_keyframes_earlier_offset_gives_earlier_source_tc():
+    from timeline_reader.keyframes import summarize_keyframes
+
+    # An elastic keyframe before the clip's in-point must report the *earlier*
+    # source timecode, not be clamped to the clip in-point.
+    src_in = 25 * 60 * 60  # 01:00:00:00
+    node = _Obj(length=100, param_list=[
+        _param(_SCALE_X, [([-702, 1], 100.0), ([722, 1], 145.0)]),
+    ])
+    out = summarize_keyframes(node, src_start=src_in, fps=25.0, drop=False)
+    # -702 frames -> 00:59:31:23 ; +722 frames -> 01:00:28:22
+    assert out == "Scale X: 100@00:59:31:23, 145@01:00:28:22"
+
+
+def test_keyframes_long_curve_is_thinned_to_endpoints():
+    from timeline_reader.keyframes import summarize_keyframes
+
+    pts = [([i, 1], float(i)) for i in range(20)]  # 20 points > cap
+    node = _Obj(length=19, param_list=[_param(_SCALE_X, pts)])
+    out = summarize_keyframes(node, src_start=0, fps=25.0, drop=False)
+    assert "(20 kfs)" in out
+    assert out.count("@") == 2  # only first and last shown
+
+
+def test_keyframes_pairs_x_and_y():
+    from timeline_reader.keyframes import summarize_keyframes
+
+    node = _Obj(length=50, param_list=[
+        _param(_SCALE_X, [([0, 1], 100.0), ([50, 1], 145.0)]),
+        _param(_SCALE_Y, [([0, 1], 100.0), ([50, 1], 145.0)]),
+    ])
+    out = summarize_keyframes(node, src_start=0, fps=25.0, drop=False)
+    # X/Y are combined into one (x, y) pair per keyframe, not listed separately.
+    assert out == "Scale: (100, 100)@00:00:00:00, (145, 145)@00:00:02:00"
+
+
+def test_keyframes_static_crop_is_reported():
+    from timeline_reader.keyframes import summarize_keyframes
+
+    # A plain crop: no keyframes, but the non-zero crop amounts are still shown.
+    node = _Obj(length=124, param_list=[
+        _Obj(uuid=_CROP_L, value=394.0, control_track=None),
+    ])
+    out = summarize_keyframes(node, src_start=0, fps=25.0, drop=False)
+    assert out == "Crop L 394.0"  # crop reported to 1 dp
+
+
+def _mparam(uuid, offsets_values):
+    return _param(uuid, offsets_values)
+
+
+def test_motion_freeze_frame():
+    from timeline_reader.keyframes import describe_motion
+
+    # Source offset never advances -> freeze, despite a bogus [length,1] speed_ratio.
+    node = _Obj(length=133, speed_ratio=[133, 1], param_list=[
+        _mparam(_SPEED_OFFSET_MAP, [([0, 1], 0.0), ([133, 1], 0.0)]),
+        _mparam(_SPEED_MAP, [([0, 1], 0.0)]),
+    ])
+    assert describe_motion(node, src_start=0, fps=25.0, drop=False) == ("Freeze Frame", "")
+
+
+def test_motion_trim_to_fill_speed():
+    from timeline_reader.keyframes import describe_motion
+
+    # A raw offset map (no speed map) playing 145 source frames over 69 output -> ~210%.
+    node = _Obj(length=69, speed_ratio=[69, 146], param_list=[
+        _mparam(_OFFSET_MAP, [([0, 1], 0.0), ([68, 1], 145.0)]),
+    ])
+    cat, detail = describe_motion(node, src_start=0, fps=25.0, drop=False)
+    assert cat == "Trim to Fill"
+    assert detail == "210.14%"  # 145 src / 69 output, to 2 dp
+
+
+def test_motion_variable_speed_reports_percent_at_source_tc():
+    from timeline_reader.keyframes import describe_motion
+
+    offmap = [([0, 1], 0.0), ([12, 1], 8.0), ([88, 1], 44.0)]
+    node = _Obj(length=88, param_list=[
+        _mparam(_SPEED_OFFSET_MAP, offmap),
+        _mparam(_SPEED_MAP, [([0, 1], 1.0), ([12, 1], 0.35), ([88, 1], 1.0)]),
+    ])
+    src_in = 25 * 60 * 60  # 01:00:00:00
+    cat, detail = describe_motion(node, src_start=src_in, fps=25.0, drop=False)
+    assert cat == "Timewarp"
+    # speed% at each keyframe, timed by its source offset from the offset map.
+    assert detail == "100%@01:00:00:00, 35%@01:00:00:08, 100%@01:00:01:19"
+
+
+def test_transitions_are_standalone_rows_in_opticals():
+    import os
+
+    from timeline_reader.parsers.avb_parser import parse
+    from timeline_reader.effects import is_optical_category
+    from timeline_reader.timecode import frames_to_tc
+
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "01-test files", "bin", "timeline-reader test.avb")
+    if not os.path.exists(path):
+        return
+    tl = parse(path, key=5)  # the "opticals" sequence
+
+    dissolves = [c for c in tl.clips if any(e.category == "Dissolve" for e in c.effects)]
+    assert dissolves, "dissolves should appear as their own optical rows"
+    for c in dissolves:
+        assert c.is_transition
+        assert c.clip_name == "" and c.tape_name == ""      # no clip identity
+        assert c.rec_end - c.rec_start == 25                 # its own record span
+    # The first dissolve runs to 00:00:29:22 (rec-out), not the incoming clip's out.
+    assert frames_to_tc(min(dissolves, key=lambda c: c.rec_start).rec_end, tl.fps) == "00:00:29:22"
+
+    # A fit/trim-to-fill consumes more source than its record length (sped up).
+    fill = [c for c in tl.clips if any(e.category == "Trim to Fill" for e in c.effects)]
+    assert fill, "trim-to-fill should be detected"
+    f = fill[0]
+    assert (f.src_end - f.src_start) > (f.rec_end - f.rec_start)
+
+
 def test_caption_to_srt():
     raw = "<begin subtitles>\n10:00:01:00 10:00:04:12 Hello\nWorld\n<end subtitles>\n"
     doc = parse_caption_text(raw, fps=25.0)

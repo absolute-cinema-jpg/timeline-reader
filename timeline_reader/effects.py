@@ -23,8 +23,8 @@ _EXACT: dict[str, tuple[str, bool]] = {
     "EFF_FLOP": ("Flop", True),
     "EFF_FLIP_FLOP": ("Flip-Flop", True),
     "EFF2_RGB_COLOR_CORRECTION": ("Colour Correction", False),
-    "EFF2_BLEND_DISSOLVE": ("Dissolve", False),
-    "EFF_ANIMATTE": ("AniMatte", False),
+    "EFF2_BLEND_DISSOLVE": ("Dissolve", True),
+    "EFF_ANIMATTE": ("AniMatte", True),
     "EFF_BLEND_SUBMASTER": ("Submaster", False),
     "INT_EFF_SPATIAL_ADAPTER": ("Auto Reformat", False),
     "INT_EFF_TIMECODE_BURNIN": ("Timecode Burn-in", False),
@@ -39,7 +39,7 @@ _PREFIX: tuple[tuple[str, str, bool], ...] = (
     ("EFF_TIMEWARP", "Timewarp", True),
     ("EFF_MOTION", "Motion Effect", True),
     ("EFF2_RGB_COLOR", "Colour Correction", False),
-    ("EFF2_BLEND_DISSOLVE", "Dissolve", False),
+    ("EFF2_BLEND_DISSOLVE", "Dissolve", True),
     ("EFF2_BLEND_FADE", "Fade", False),
 )
 
@@ -56,17 +56,22 @@ _BY_NAME: tuple[tuple[str, str, bool], ...] = (
     ("reformat", "Auto Reformat", False),
     ("color correction", "Colour Correction", False),
     ("colour correction", "Colour Correction", False),
-    ("dissolve", "Dissolve", False),
-    ("animatte", "AniMatte", False),
+    ("dissolve", "Dissolve", True),
+    ("animatte", "AniMatte", True),
     ("submaster", "Submaster", False),
     ("title", "Title", False),
     ("subcap", "Subtitle", False),
-    ("fluidmorph", "FluidMorph", False),
+    ("fluidmorph", "Morph Cut", True),
+    ("morph", "Morph Cut", True),
 )
+
+# Categories derived in the parser (not via the tables above) rather than from a
+# raw effect id — motion effects resolve to these from their offset/speed maps.
+_DERIVED_OPTICAL = {"Freeze Frame", "Trim to Fill"}
 
 _OPTICAL_CATEGORIES = {
     cat for cat, opt in _EXACT.values() if opt
-} | {cat for _, cat, opt in _PREFIX if opt} | {cat for _, cat, opt in _BY_NAME if opt}
+} | {cat for _, cat, opt in _PREFIX if opt} | {cat for _, cat, opt in _BY_NAME if opt} | _DERIVED_OPTICAL
 
 
 def classify(effect_id: str | None, plugin_name: str | None) -> tuple[str, bool]:
