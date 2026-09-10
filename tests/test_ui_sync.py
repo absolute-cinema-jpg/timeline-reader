@@ -28,6 +28,7 @@ def _window_with_stubbed_loading():
     for name, tab in (
         ("opticals", win.opticals),
         ("cliplist", win.cliplist),
+        ("tagfinder", win.tagfinder),
         ("music", win.music),
         ("captions", win.captions),
     ):
@@ -45,6 +46,7 @@ def test_choosing_file_mirrors_to_all_timeline_tabs():
     assert set(calls) == {
         ("opticals", "/dir/THR.avb"),
         ("cliplist", "/dir/THR.avb"),
+        ("tagfinder", "/dir/THR.avb"),
         ("music", "/dir/THR.avb"),
         ("captions", "/dir/THR.avb"),
     }

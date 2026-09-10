@@ -24,7 +24,20 @@ excluded so the list stays focused on true opticals.
 An ordered list of every clip in the timeline (record order), with **clip name,
 tape/source name, source in/out and record in/out** timecodes plus duration.
 
-### 3. Music Tracker
+### 3. Tag Finder
+Finds every clip you tagged with a **timeline clip note** in Media Composer. Prep
+a sequence by typing the same word into the clip note (the segment **Comment**) of
+each clip you want to collect — say `stock` on every stock-footage shot — then load
+the bin here and type that word. The matching clips are listed with their **note,
+clip name, tape/source, track and full source/record timecodes**. Matching is a
+case-insensitive substring, so `stock` finds "stock footage" too; leaving the box
+empty lists every tagged clip so you can see what tags a sequence carries. Like the
+other reports it has selection-aware stats, row-selection export, **Choose
+columns…** and drag-to-reorder headers, and can export the matches as Avid markers
+(each marker's comment is the clip note). Note extraction lives in
+`timeline_reader/parsers/avb_parser.py` (`_collect_note`).
+
+### 4. Music Tracker
 A music cue sheet built from the sound tracks — one row per piece of music with
 **Reel, Track (the song name), Artist / Composer, Album, Filename, TC In, TC Out,
 Duration**. You tick which sound tracks hold the music (move your music clips onto
@@ -48,7 +61,7 @@ row-selection export, **Choose columns…** chooser (with an optional Audio Trac
 column) and drag-to-reorder headers. Music cue merging lives in
 `timeline_reader/music.py`.
 
-### 4. Captions → SRT
+### 5. Captions → SRT
 Converts an **Avid DS Caption (`.txt`)** file into a standard **SubRip (`.srt`)**
 subtitle file, with a live preview and a selectable frame rate (including
 drop-frame for 29.97 / 59.94). Validated against a real Avid Caption export
@@ -187,8 +200,8 @@ timeline_reader/
     tab_parser.py     tab-delimited / CSV bin export
   ui/
     main_window.py    branded top bar + page tabs
-    report_tab.py     shared Opticals / Clip-list tab
-    markers_tab.py    timeline markers / locators tab
+    report_tab.py     shared Opticals / Clip-list / Tag-finder tab
+    tagfinder_tab.py  tag finder (timeline clip notes) tab
     music_tab.py      music tracker (cue sheet) tab
     captions_tab.py   caption converter tab
     widgets.py        drop zone + report table

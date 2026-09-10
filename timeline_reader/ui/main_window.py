@@ -21,6 +21,7 @@ from .assets import icon_path
 from .captions_tab import CaptionsTab
 from .music_tab import MusicTab
 from .report_tab import TimelineReportTab
+from .tagfinder_tab import TagFinderTab
 
 
 class MainWindow(QMainWindow):
@@ -56,17 +57,18 @@ class MainWindow(QMainWindow):
             empty_hint="Load a timeline to build the clip list",
             count_label="Clips",
         )
+        self.tagfinder = TagFinderTab()
         self.music = MusicTab()
         self.captions = CaptionsTab()
 
-        for tab in (self.opticals, self.cliplist, self.music, self.captions):
+        for tab in (self.opticals, self.cliplist, self.tagfinder, self.music, self.captions):
             tab.status.connect(self._status)
 
         # Choosing a timeline file in one tab loads it in the others too. The
         # Captions tab now reads subtitles from the same .avb, so it joins in —
         # it ignores non-bin sources it can't use rather than erroring.
         self._timeline_tabs = (
-            self.opticals, self.cliplist, self.music, self.captions,
+            self.opticals, self.cliplist, self.tagfinder, self.music, self.captions,
         )
         for tab in self._timeline_tabs:
             tab.drop.fileSelected.connect(
@@ -75,6 +77,7 @@ class MainWindow(QMainWindow):
 
         self.tabs.addTab(self.cliplist, "  All Clips  ")
         self.tabs.addTab(self.opticals, "  Opticals List  ")
+        self.tabs.addTab(self.tagfinder, "  Tag Finder  ")
         self.tabs.addTab(self.music, "  Music Tracker  ")
         self.tabs.addTab(self.captions, "  SRT Generator  ")
         outer.addWidget(self.tabs, 1)

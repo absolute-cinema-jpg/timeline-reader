@@ -123,6 +123,7 @@ def _walk_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> N
             drop=drop,
         )
         _collect_markers(comp, clip)  # sequence-level locators within this segment
+        _collect_note(comp, clip)     # timeline clip note (segment comment)
         if src is not None:
             _resolve_source(src, clip)  # sets src_start, needed for keyframe timecodes
 
@@ -461,6 +462,37 @@ def _collect_markers(node, clip: Clip, seen: set | None = None, depth: int = 0) 
     if isinstance(node, Sequence):
         for sub in node.components:
             _collect_markers(sub, clip, seen, depth + 1)
+
+
+def _collect_note(node, clip: Clip, seen: set | None = None, depth: int = 0) -> None:
+    """Gather timeline clip notes from a segment's subtree into ``clip.note``.
+
+    A note the editor typed on a timeline segment (Clip Name > Comments, or the
+    Comments row) is stored as the component's ``_COMMENT`` attribute. It can sit
+    on the top segment or on a nested effect wrapper (a Resize / FrameFlex holds
+    the real clip in a foreground track), so scan the composed subtree — but not
+    referenced mobs, so a master clip's own bin Comment never leaks in here.
+    Multiple notes on one clip are joined, matching how markers are merged.
+    """
+    if node is None or depth > 12:
+        return
+    seen = seen if seen is not None else set()
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+
+    attrs = getattr(node, "attributes", None)
+    if attrs is not None and hasattr(attrs, "get"):
+        note = _clean(attrs.get("_COMMENT"))
+        if note and note not in clip.note.split("; "):
+            clip.note = f"{clip.note}; {note}" if clip.note else note
+
+    pd = getattr(node, "property_data", {})
+    for tr in pd.get("tracks", []) or []:
+        _collect_note(getattr(tr, "component", None), clip, seen, depth + 1)
+    if isinstance(node, Sequence):
+        for sub in node.components:
+            _collect_note(sub, clip, seen, depth + 1)
 
 
 def _collect_track_markers(seq, track_name: str, tl: Timeline) -> None:

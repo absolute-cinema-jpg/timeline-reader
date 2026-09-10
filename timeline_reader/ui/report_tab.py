@@ -302,7 +302,7 @@ class TimelineReportTab(QWidget):
     def _on_parsed(self, tl: Timeline):
         self._timeline = tl
         try:
-            self._all_contexts = list(self._report.iter_ctx(tl))
+            self._all_contexts = self._compute_contexts()
         except Exception as exc:  # noqa: BLE001
             self._on_failed(f"Report build failed: {exc}")
             return
@@ -324,6 +324,12 @@ class TimelineReportTab(QWidget):
         self.status.emit(
             f"Loaded {os.path.basename(tl.source_path)} — {len(self._rows)} rows"
         )
+
+    def _compute_contexts(self) -> list:
+        """The report rows (contexts) for the loaded timeline. A subclass can
+        override to filter — e.g. the Tag Finder narrows to notes matching a
+        search — resetting its RowSet when the result set changes."""
+        return list(self._report.iter_ctx(self._timeline))
 
     def _populate_sequences(self, tl: Timeline):
         opts = tl.available_sequences

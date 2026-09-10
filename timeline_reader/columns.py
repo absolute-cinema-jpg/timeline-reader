@@ -106,6 +106,18 @@ def _cliplist_builtin() -> list[ColumnDef]:
     ]
 
 
+def _tagfinder_builtin() -> list[ColumnDef]:
+    # The note leads (after #), then clip identity and every timecode — a tagged
+    # clip is looked up for its full source/record detail.
+    return [
+        _CORE_BEFORE[0],
+        _make("note", "Note", "Core", True, lambda c: c.clip.note),
+        _CLIP_IDENTITY[0], _CLIP_IDENTITY[1], _CORE_BEFORE[1],
+        _col("src_in"), _col("src_out"), _col("rec_in"), _col("rec_out"),
+        _col("duration"),
+    ]
+
+
 _BY_ID = {c.id: c for c in _TIMECODES}
 
 
@@ -126,6 +138,7 @@ class Report:
     builtin: list[ColumnDef]
     per_effect: bool                          # opticals iterate effects; clip list iterates clips
     optical_only: bool = False
+    clip_filter: "Callable[[Clip], bool] | None" = None  # keep only clips passing this
     # Avid-marker export mapping: what each row becomes as a marker.
     marker_name: "Callable[[RowCtx], str] | None" = None       # column 7 (short name)
     marker_comment: "Callable[[RowCtx], str] | None" = None    # column 5 (main text)
@@ -150,6 +163,8 @@ class Report:
         from .effects import is_optical_category
         n = 0
         for clip in tl.sorted_by_record():
+            if self.clip_filter and not self.clip_filter(clip):
+                continue
             if self.per_effect:
                 for eff in clip.effects:
                     if self.optical_only and not is_optical_category(eff.category):
@@ -194,6 +209,13 @@ CLIPLIST_REPORT = Report(
     marker_name=lambda ctx: "",
     marker_comment=lambda ctx: ctx.clip.clip_name,
     marker_colour="Blue",
+)
+TAGFINDER_REPORT = Report(
+    "tagfinder", _tagfinder_builtin(), per_effect=False,
+    clip_filter=lambda clip: bool(clip.note),
+    marker_name=lambda ctx: "",
+    marker_comment=lambda ctx: ctx.clip.note,
+    marker_colour="Red",
 )
 
 

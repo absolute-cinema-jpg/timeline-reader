@@ -12,7 +12,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tempfile
 
 from timeline_reader.captions import parse_caption_text, to_srt
-from timeline_reader.columns import CLIPLIST_REPORT, ColumnSelection, META_PREFIX
+from timeline_reader.columns import (
+    CLIPLIST_REPORT,
+    TAGFINDER_REPORT,
+    ColumnSelection,
+    META_PREFIX,
+)
 from timeline_reader.effects import classify, is_optical_category
 from timeline_reader.exporters import export_table, format_labels
 from timeline_reader.models import Clip, Timeline
@@ -244,6 +249,22 @@ def test_metadata_column_opt_in():
     assert rows[0][-1] == "3" and rows[1][-1] == "1"
 
 
+def test_tagfinder_report_only_yields_tagged_clips():
+    tl = Timeline(name="demo", fps=25.0)
+    tl.add(Clip(index=1, track="V1", clip_name="A", note="stock",
+                rec_start=0, rec_end=50))
+    tl.add(Clip(index=2, track="V1", clip_name="B",
+                rec_start=50, rec_end=90))  # no note -> excluded
+    tl.add(Clip(index=3, track="V1", clip_name="C", note="Stock footage",
+                rec_start=90, rec_end=120))
+    sel = ColumnSelection(TAGFINDER_REPORT.key)
+    headers, rows = TAGFINDER_REPORT.build(tl, sel)
+    assert headers[:2] == ["#", "Note"]
+    # Only the two note-bearing clips appear, and the note leads.
+    assert [r[1] for r in rows] == ["stock", "Stock footage"]
+    assert [r[2] for r in rows] == ["A", "C"]
+
+
 def test_exclude_default_column():
     tl = _demo_timeline()
     sel = ColumnSelection(CLIPLIST_REPORT.key)
@@ -335,6 +356,35 @@ def test_marker_extraction_from_sample_bin():
     assert ("vfx 1", "White", "V4") in got
     assert len(tl.markers) == 7
     assert all(m.user and m.date for m in tl.markers)
+
+
+def test_timeline_notes_from_sample_bin():
+    """Timeline clip notes read from the sample bin's 'timeline notes' sequence,
+    each resolving to its clip's full source detail, when the sample is present.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "01-test files", "bin", "timeline-reader test.avb",
+    )
+    if not os.path.exists(path):
+        return
+    from timeline_reader.parsers import parse_timeline
+    from timeline_reader.parsers.avb_parser import sequences
+
+    key = next(o.key for o in sequences(path) if o.name == "timeline notes")
+    tl = parse_timeline(path, key)
+    notes = {c.note for c in tl.clips if c.note}
+    assert notes == {"Note 1", "note 2", "note 3", "lol"}
+
+    # Only tagged clips reach the report, and a note keeps its clip's metadata.
+    ctx = list(TAGFINDER_REPORT.iter_ctx(tl))
+    assert len(ctx) == 4
+    note1 = next(c for c in ctx if c.clip.note == "Note 1")
+    assert note1.clip.tape_name and note1.clip.src_start > 0
+
+    # Case-insensitive substring search is how the tab filters.
+    hits = [c for c in ctx if "note" in c.clip.note.lower()]
+    assert {c.clip.note for c in hits} == {"Note 1", "note 2", "note 3"}
 
 
 def test_captions_from_sample_bin():
