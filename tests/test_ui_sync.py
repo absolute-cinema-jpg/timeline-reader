@@ -28,7 +28,6 @@ def _window_with_stubbed_loading():
     for name, tab in (
         ("opticals", win.opticals),
         ("cliplist", win.cliplist),
-        ("markers", win.markers),
         ("music", win.music),
         ("captions", win.captions),
     ):
@@ -46,12 +45,10 @@ def test_choosing_file_mirrors_to_all_timeline_tabs():
     assert set(calls) == {
         ("opticals", "/dir/THR.avb"),
         ("cliplist", "/dir/THR.avb"),
-        ("markers", "/dir/THR.avb"),
         ("music", "/dir/THR.avb"),
         ("captions", "/dir/THR.avb"),
     }
     assert win.cliplist._path == "/dir/THR.avb"
-    assert win.markers._path == "/dir/THR.avb"
     assert win.music._path == "/dir/THR.avb"
     assert win.captions._path == "/dir/THR.avb"
 
@@ -61,9 +58,9 @@ def test_already_loaded_tab_is_not_reloaded():
     win.cliplist._path = "/dir/THR.avb"  # already showing this file
     win.opticals.drop.fileSelected.emit("/dir/THR.avb")
     _app.processEvents()
-    # opticals loads itself; markers is mirrored; cliplist is skipped.
+    # opticals loads itself; music is mirrored; cliplist is skipped.
     assert ("cliplist", "/dir/THR.avb") not in calls
-    assert ("markers", "/dir/THR.avb") in calls
+    assert ("music", "/dir/THR.avb") in calls
 
 
 def test_clearing_does_not_propagate():
