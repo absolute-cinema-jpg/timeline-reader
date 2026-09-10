@@ -46,6 +46,10 @@ class CaptionDoc:
     cues: list[Cue] = field(default_factory=list)
     source_path: str = ""
     warnings: list[str] = field(default_factory=list)
+    # Populated when the cues come from an Avid bin (.avb) rather than a .txt.
+    available_sequences: list = field(default_factory=list)
+    sequence_key: int | None = None
+    sequence_name: str = ""
 
 
 def parse_caption_file(path: str, fps: float = 25.0, drop: bool = False) -> CaptionDoc:

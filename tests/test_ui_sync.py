@@ -30,6 +30,7 @@ def _window_with_stubbed_loading():
         ("cliplist", win.cliplist),
         ("markers", win.markers),
         ("music", win.music),
+        ("captions", win.captions),
     ):
         def stub(path, _name=name, _tab=tab):
             _tab._path = path
@@ -47,10 +48,12 @@ def test_choosing_file_mirrors_to_all_timeline_tabs():
         ("cliplist", "/dir/THR.avb"),
         ("markers", "/dir/THR.avb"),
         ("music", "/dir/THR.avb"),
+        ("captions", "/dir/THR.avb"),
     }
     assert win.cliplist._path == "/dir/THR.avb"
     assert win.markers._path == "/dir/THR.avb"
     assert win.music._path == "/dir/THR.avb"
+    assert win.captions._path == "/dir/THR.avb"
 
 
 def test_already_loaded_tab_is_not_reloaded():

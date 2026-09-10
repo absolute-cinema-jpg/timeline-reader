@@ -1,13 +1,20 @@
-"""Caption converter tab: Avid DS Caption (.txt) → SubRip (.srt)."""
+"""Captions → SRT tab.
+
+Reads subtitles straight from an Avid bin (.avb): every Avid *SubCap* subtitle on
+the timeline becomes a cue, timed by where it sits and carrying its own text
+(multi-line captions included). An Avid DS Caption (.txt) export is still
+accepted as a fallback. The SubRip preview is editable, and edits carry through
+to Copy / Export.
+"""
 
 from __future__ import annotations
 
 import os
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -21,8 +28,14 @@ from PySide6.QtWidgets import (
 
 from .. import settings
 from ..captions import CaptionDoc, parse_caption_file, to_srt
+from ..captions_avb import parse_captions
 from ..exporters import write_text
+from ..parsers import ParseError
 from .widgets import DropZone, make_card, section_label
+
+# Extensions handled here: an Avid bin, or a DS Caption text export.
+BIN_EXT = ".avb"
+CAPTION_EXTS = [BIN_EXT, ".txt"]
 
 _FPS_CHOICES = [
     ("23.976", 24000 / 1001, False),
@@ -37,6 +50,14 @@ _FPS_CHOICES = [
 ]
 
 
+def _fps_preset_index(fps: float, drop: bool) -> int | None:
+    """The frame-rate combo index matching a detected sequence rate, if any."""
+    for i, (_, f, d) in enumerate(_FPS_CHOICES):
+        if round(f) == round(fps) and d == drop:
+            return i
+    return None
+
+
 class CaptionsTab(QWidget):
     status = Signal(str)
 
@@ -45,7 +66,9 @@ class CaptionsTab(QWidget):
         self._path = ""
         self._doc: CaptionDoc | None = None
         self._srt = ""
-        self._loading = False  # True while we replace the preview programmatically
+        self._seq_key: int | None = None      # chosen sequence within a bin
+        self._loading = False                  # replacing the preview programmatically
+        self._suppress_switch = False          # populating the sequence combo
         self._build()
 
     def _build(self):
@@ -56,9 +79,9 @@ class CaptionsTab(QWidget):
         top = QHBoxLayout()
         top.setSpacing(14)
         self.drop = DropZone(
-            "Drop an Avid DS Caption file",
-            "Caption text export (.txt)",
-            [".txt"],
+            "Drop an Avid bin (.avb)",
+            "SubCap subtitles read straight from the timeline · DS Caption .txt also accepted",
+            CAPTION_EXTS,
         )
         self.drop.fileSelected.connect(self._on_file)
         self.drop.setMinimumWidth(360)
@@ -77,8 +100,8 @@ class CaptionsTab(QWidget):
 
         self.preview = QPlainTextEdit()
         self.preview.setPlaceholderText(
-            "The converted SubRip (.srt) subtitles will appear here once a "
-            "caption file is loaded. You can edit them before exporting."
+            "The SubRip (.srt) subtitles will appear here once a bin is loaded. "
+            "You can edit them before exporting."
         )
         self.preview.textChanged.connect(self._on_preview_edited)
         root.addWidget(self.preview, 1)
@@ -91,7 +114,20 @@ class CaptionsTab(QWidget):
         lay = QVBoxLayout(card)
         lay.setContentsMargins(18, 16, 18, 16)
         lay.setSpacing(10)
-        lay.addWidget(section_label("Conversion Options"))
+        lay.addWidget(section_label("Options"))
+
+        # Sequence picker — shown only for a bin with more than one sequence.
+        self.seq_row = QWidget()
+        seq_lay = QHBoxLayout(self.seq_row)
+        seq_lay.setContentsMargins(0, 0, 0, 0)
+        seq_lay.setSpacing(10)
+        seq_lay.addWidget(QLabel("Sequence:"))
+        self.seq_combo = QComboBox()
+        self.seq_combo.setMinimumWidth(240)
+        self.seq_combo.currentIndexChanged.connect(self._switch_sequence)
+        seq_lay.addWidget(self.seq_combo, 1)
+        self.seq_row.hide()
+        lay.addWidget(self.seq_row)
 
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -100,19 +136,18 @@ class CaptionsTab(QWidget):
         for label, _, _ in _FPS_CHOICES:
             self.fps.addItem(label)
         self.fps.setCurrentIndex(settings.caption_fps_index(2))  # default 25 PAL
-        self.fps.currentIndexChanged.connect(self._reconvert)
-        self.fps.currentIndexChanged.connect(settings.set_caption_fps_index)
+        self.fps.currentIndexChanged.connect(self._on_fps_changed)
         row.addWidget(self.fps)
         row.addStretch(1)
         lay.addLayout(row)
 
-        hint = QLabel(
-            "Frame rate controls how source timecodes convert to SRT "
-            "milliseconds. Drop-frame is handled for 29.97/59.94."
+        self.fps_hint = QLabel(
+            "Frame rate maps timecodes to SRT milliseconds. A bin sets this "
+            "automatically from the sequence; it's editable only for DS Caption .txt."
         )
-        hint.setObjectName("Hint")
-        hint.setWordWrap(True)
-        lay.addWidget(hint)
+        self.fps_hint.setObjectName("Hint")
+        self.fps_hint.setWordWrap(True)
+        lay.addWidget(self.fps_hint)
 
         self.info = QLabel("No file loaded")
         self.info.setObjectName("DropSub")
@@ -124,7 +159,7 @@ class CaptionsTab(QWidget):
     def _action_bar(self):
         bar = QHBoxLayout()
         bar.setSpacing(10)
-        self.summary = QLabel("Load an Avid DS Caption .txt to convert")
+        self.summary = QLabel("Load an Avid bin to read its subtitles")
         self.summary.setObjectName("Hint")
         bar.addWidget(self.summary)
         bar.addStretch(1)
@@ -137,49 +172,147 @@ class CaptionsTab(QWidget):
         bar.addWidget(self.export_btn)
         return bar
 
-    # ---- logic ----
+    # ---- loading ----------------------------------------------------------
+    def _is_bin(self) -> bool:
+        return self._path.lower().endswith(BIN_EXT)
+
     def _fps_drop(self):
         _, fps, drop = _FPS_CHOICES[self.fps.currentIndex()]
         return fps, drop
 
     def _on_file(self, path: str):
         self._path = path
+        self._seq_key = None  # a new file starts at its default sequence
         if not path:
             self._reset()
             return
         self._reconvert()
 
+    def _on_fps_changed(self, index: int):
+        # Persist the choice; only a .txt caption source re-parses on rate change
+        # (a bin's rate is authoritative and the control is disabled for it).
+        settings.set_caption_fps_index(index)
+        if self._path and not self._is_bin():
+            self._reconvert()
+
+    def _switch_sequence(self, index: int):
+        if self._suppress_switch or not self._path or index < 0:
+            return
+        self._seq_key = index
+        self._reconvert()
+
     def _reconvert(self):
         if not self._path:
             return
-        fps, drop = self._fps_drop()
+        ext = os.path.splitext(self._path)[1].lower()
+        QGuiApplication.setOverrideCursor(Qt.BusyCursor)
         try:
-            self._doc = parse_caption_file(self._path, fps=fps, drop=drop)
+            if ext == BIN_EXT:
+                self._doc = parse_captions(self._path, key=self._seq_key)
+            elif ext == ".txt":
+                fps, drop = self._fps_drop()
+                self._doc = parse_caption_file(self._path, fps=fps, drop=drop)
+            else:
+                self._unsupported(ext)
+                return
             self._srt = to_srt(self._doc)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, "Could not read caption file", str(exc))
-            self.status.emit("Caption load failed")
+        except (ParseError, OSError, ValueError) as exc:
+            self._on_failed(str(exc))
             return
-        n = len(self._doc.cues)
+        except Exception as exc:  # noqa: BLE001
+            self._on_failed(f"Unexpected error: {exc}")
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+        self._show_doc()
+
+    def _show_doc(self):
+        doc = self._doc
+        n = len(doc.cues)
         self._set_preview(self._srt)
-        self.drop.show_loaded(self._path, f"{n} cues · {self.fps.currentText()}")
-        self.info.setText(f"{os.path.basename(self._path)}\n{n} caption cues detected.")
+        self._sync_fps_control(doc)
+        self._populate_sequences(doc)
+
+        if self._is_bin():
+            seq = doc.sequence_name or os.path.basename(self._path)
+            self.drop.show_loaded(self._path, f"{seq} · {n} subtitles · {doc.fps:g} fps")
+            self.info.setText(f"{seq}\n{n} SubCap subtitles on this sequence.")
+        else:
+            self.drop.show_loaded(self._path, f"{n} cues · {self.fps.currentText()}")
+            self.info.setText(f"{os.path.basename(self._path)}\n{n} caption cues detected.")
+
         self.cue_count.setText(f"{n} cues")
         self.summary.setText(f"{n} cues ready to export as SubRip")
-        if self._doc.warnings:
-            self.summary.setText("⚠ " + self._doc.warnings[0])
+        if doc.warnings:
+            self.summary.setText("⚠ " + doc.warnings[0])
         self._update_actions()
-        self.status.emit(f"Converted {n} caption cues")
+        self.status.emit(f"Read {n} subtitles" if self._is_bin() else f"Converted {n} caption cues")
+
+    def _sync_fps_control(self, doc: CaptionDoc):
+        """A bin dictates its own rate (control disabled, set to match); a .txt
+        leaves the rate user-selectable."""
+        if self._is_bin():
+            idx = _fps_preset_index(doc.fps, doc.drop)
+            if idx is not None:
+                self._suppress_switch = True
+                self.fps.setCurrentIndex(idx)
+                self._suppress_switch = False
+            self.fps.setEnabled(False)
+        else:
+            self.fps.setEnabled(True)
+
+    def _populate_sequences(self, doc: CaptionDoc):
+        opts = doc.available_sequences
+        if not self._is_bin() or len(opts) <= 1:
+            self.seq_row.hide()
+            return
+        self._suppress_switch = True
+        self.seq_combo.clear()
+        for opt in opts:
+            label = opt.name if not opt.detail else f"{opt.name}   ({opt.detail})"
+            self.seq_combo.addItem(label)
+        self.seq_combo.setCurrentIndex(doc.sequence_key or 0)
+        self._suppress_switch = False
+        self.seq_row.show()
+
+    def _unsupported(self, ext: str):
+        """A non-caption source (e.g. an EDL/AAF mirrored from another tab): keep a
+        calm empty state rather than an error dialog."""
+        self._doc = None
+        self._srt = ""
+        self._set_preview("")
+        self.seq_row.hide()
+        self.fps.setEnabled(True)
+        self.cue_count.setText("")
+        self.info.setText(
+            f"{os.path.basename(self._path)}\nSubtitles are read from Avid bins "
+            f"(.avb); {ext or 'this file'} isn't supported here."
+        )
+        self.summary.setText("Load an Avid bin (.avb) to read its subtitles")
+        self._update_actions()
+
+    def _on_failed(self, message: str):
+        QGuiApplication.restoreOverrideCursor()
+        self._doc = None
+        self._srt = ""
+        self._set_preview("")
+        self._update_actions()
+        self.status.emit("Caption load failed")
+        QMessageBox.warning(self, "Could not read subtitles", message)
 
     def _reset(self):
         self._doc = None
         self._srt = ""
+        self._seq_key = None
         self._set_preview("")
+        self.seq_row.hide()
+        self.fps.setEnabled(True)
         self.info.setText("No file loaded")
         self.cue_count.setText("")
-        self.summary.setText("Load an Avid DS Caption .txt to convert")
+        self.summary.setText("Load an Avid bin to read its subtitles")
         self._update_actions()
 
+    # ---- preview / output -------------------------------------------------
     def _set_preview(self, text: str):
         """Replace the preview contents without treating it as a user edit."""
         self._loading = True
@@ -204,7 +337,12 @@ class CaptionsTab(QWidget):
         self.copy_btn.setEnabled(has)
 
     def _suggested_name(self):
-        base = os.path.splitext(os.path.basename(self._path))[0] if self._path else "captions"
+        if self._doc is not None and self._doc.sequence_name:
+            base = self._doc.sequence_name
+        elif self._path:
+            base = os.path.splitext(os.path.basename(self._path))[0]
+        else:
+            base = "captions"
         return f"{base}.srt"
 
     def _export(self):

@@ -65,8 +65,11 @@ class MainWindow(QMainWindow):
             tab.status.connect(self._status)
 
         # Choosing a timeline file in one tab loads it in the others too. The
-        # Captions tab reads caption .txt files, not timelines, so it's excluded.
-        self._timeline_tabs = (self.opticals, self.cliplist, self.markers, self.music)
+        # Captions tab now reads subtitles from the same .avb, so it joins in —
+        # it ignores non-bin sources it can't use rather than erroring.
+        self._timeline_tabs = (
+            self.opticals, self.cliplist, self.markers, self.music, self.captions,
+        )
         for tab in self._timeline_tabs:
             tab.drop.fileSelected.connect(
                 lambda path, origin=tab: self._sync_timeline_file(origin, path)

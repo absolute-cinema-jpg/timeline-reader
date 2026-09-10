@@ -337,6 +337,39 @@ def test_marker_extraction_from_sample_bin():
     assert all(m.user and m.date for m in tl.markers)
 
 
+def test_captions_from_sample_bin():
+    """SubCap subtitles read straight from the bin's 'captions no VFX cards'
+    sequence — timing and multi-line text — when the gitignored sample is present.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "01-test files", "bin", "timeline-reader test.avb",
+    )
+    if not os.path.exists(path):
+        return
+    from timeline_reader.captions import to_srt
+    from timeline_reader.captions_avb import caption_sequences, parse_captions
+    from timeline_reader.timecode import Timecode
+
+    key = next(o.key for o in caption_sequences(path) if o.name == "captions no VFX cards")
+    doc = parse_captions(path, key)
+    assert len(doc.cues) == 55
+    assert doc.fps == 25.0 and doc.drop is False
+
+    first = doc.cues[0]
+    assert Timecode(first.start, 25.0, False).to_string() == "00:02:41:05"
+    assert Timecode(first.end, 25.0, False).to_string() == "00:02:43:21"
+    assert first.text() == "You wouldn't let go of my hands that day"
+
+    # A wrapped caption keeps both lines (the flat .txt export drops the second).
+    multi = next(c for c in doc.cues if c.text().startswith("But you know what"))
+    assert multi.text() == "But you know what I’ve been dying to try?\nAiden’s amazing chapati"
+
+    # The SubRip render is well-formed: index, arrow-timed range, then text.
+    srt = to_srt(doc)
+    assert srt.startswith("1\n00:02:41,200 --> 00:02:43,840\n")
+
+
 _HEADERS = ["#", "Clip Name", "Rec In"]
 _ROWS = [["1", "2-25-3", "00:00:03:17"], ["2", "wide’s", "00:00:05:00"]]
 
