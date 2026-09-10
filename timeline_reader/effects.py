@@ -61,8 +61,7 @@ _BY_NAME: tuple[tuple[str, str, bool], ...] = (
     ("submaster", "Submaster", False),
     ("title", "Title", False),
     ("subcap", "Subtitle", False),
-    ("fluidmorph", "Morph Cut", True),
-    ("morph", "Morph Cut", True),
+    ("fluidmorph", "FluidMorph", True),
 )
 
 # Categories derived in the parser (not via the tables above) rather than from a

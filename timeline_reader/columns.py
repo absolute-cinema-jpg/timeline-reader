@@ -69,7 +69,6 @@ _CLIP_IDENTITY = [
 ]
 _EFFECT_COLS = [
     ColumnDef("effect", "Effect", "Effect", True, lambda c: c.effect.category if c.effect else ""),
-    ColumnDef("effect_type", "Type", "Effect", True, lambda c: c.effect.name if c.effect else ""),
 ]
 _TIMECODES = [
     ColumnDef("rec_in", "Rec In", "Timecode", True, _tc("rec_start")),
@@ -90,7 +89,7 @@ def _opticals_builtin() -> list[ColumnDef]:
         _CORE_BEFORE[0], _CLIP_IDENTITY[0],
         _EFFECT_COLS[0],
         _make("notes", "Notes", "Effect", True, lambda c: c.effect.detail if c.effect else ""),
-        _CORE_BEFORE[1], _EFFECT_COLS[1],
+        _CORE_BEFORE[1],
         _CLIP_IDENTITY[1],
         _col("rec_in"), _col("rec_out"), _col("src_in"), _col("src_out"),
         _col("duration"),
