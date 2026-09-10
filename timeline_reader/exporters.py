@@ -9,7 +9,6 @@ leading zeros and clip names exactly as shown in the app.
 from __future__ import annotations
 
 import csv
-import getpass
 import io
 from dataclasses import dataclass
 
@@ -113,10 +112,9 @@ class AvidMarker:
 
 
 def _default_author() -> str:
-    try:
-        return getpass.getuser() or "Timeline Reader"
-    except Exception:  # noqa: BLE001
-        return "Timeline Reader"
+    """Author written for markers that carry none — the app's own name."""
+    from . import __app_name__
+    return __app_name__
 
 
 def _track_index(track: str) -> int:

@@ -71,6 +71,13 @@ def test_colour_override_applies_to_both_colour_columns():
     assert cols[3] == "Green" and cols[7].strip() == "Green"
 
 
+def test_marker_author_defaults_to_app_name():
+    from timeline_reader import __app_name__
+
+    m = AvidMarker(position=100, track="V1", colour="Red", comment="x")  # no author
+    assert markers_to_text([m], fps=25.0).split("\t")[0] == __app_name__
+
+
 def _optical_timeline() -> Timeline:
     tl = Timeline(name="seq", fps=25.0, start_tc=90000)  # starts at 01:00:00:00
     clip = Clip(index=1, track="V2", rec_start=100, rec_end=150,

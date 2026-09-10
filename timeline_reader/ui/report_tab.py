@@ -224,8 +224,7 @@ class TimelineReportTab(QWidget):
         self.colour_label = QLabel("Marker colour:")
         bar.addWidget(self.colour_label)
         self.colour_combo = QComboBox()
-        self.colour_combo.addItem("Keep original")
-        self.colour_combo.addItems(AVID_MARKER_COLOURS)
+        self.colour_combo.addItems(AVID_MARKER_COLOURS)  # defaults to Red (first)
         bar.addWidget(self.colour_combo)
 
         bar.addWidget(QLabel("Format:"))
@@ -255,10 +254,9 @@ class TimelineReportTab(QWidget):
         self.colour_label.setVisible(show)
         self.colour_combo.setVisible(show)
 
-    def _colour_override(self) -> str | None:
-        """Chosen marker colour, or ``None`` to keep the report's own colour."""
-        i = self.colour_combo.currentIndex()
-        return None if i <= 0 else self.colour_combo.currentText()
+    def _marker_colour(self) -> str:
+        """The chosen marker colour (defaults to Red)."""
+        return self.colour_combo.currentText() or "Red"
 
     # ---- loading ----------------------------------------------------------
     def _on_file(self, path: str):
@@ -452,7 +450,7 @@ class TimelineReportTab(QWidget):
     def _build_markers(self, indices) -> list[AvidMarker]:
         """One Avid marker per chosen row, at the clip's absolute record TC."""
         tl = self._timeline
-        override = self._colour_override()
+        colour = self._marker_colour()
         contexts = list(self._report.iter_ctx(tl))
         markers = []
         for i in indices:
@@ -462,7 +460,7 @@ class TimelineReportTab(QWidget):
             markers.append(AvidMarker(
                 position=tl.start_tc + ctx.clip.rec_start,
                 track=ctx.clip.track,
-                colour=override or self._report.marker_colour,
+                colour=colour,
                 name=self._report.marker_name(ctx) if self._report.marker_name else "",
                 comment=self._report.marker_comment(ctx) if self._report.marker_comment else "",
             ))

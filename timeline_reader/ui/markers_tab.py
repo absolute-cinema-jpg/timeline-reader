@@ -157,8 +157,7 @@ class MarkersTab(QWidget):
         self.colour_label = QLabel("Marker colour:")
         bar.addWidget(self.colour_label)
         self.colour_combo = QComboBox()
-        self.colour_combo.addItem("Keep original")
-        self.colour_combo.addItems(AVID_MARKER_COLOURS)
+        self.colour_combo.addItems(AVID_MARKER_COLOURS)  # defaults to Red (first)
         bar.addWidget(self.colour_combo)
 
         bar.addWidget(QLabel("Format:"))
@@ -188,10 +187,9 @@ class MarkersTab(QWidget):
         self.colour_label.setVisible(show)
         self.colour_combo.setVisible(show)
 
-    def _colour_override(self) -> str | None:
-        """Chosen marker colour, or ``None`` to keep each marker's own colour."""
-        i = self.colour_combo.currentIndex()
-        return None if i <= 0 else self.colour_combo.currentText()
+    def _marker_colour(self) -> str:
+        """The chosen marker colour (defaults to Red)."""
+        return self.colour_combo.currentText() or "Red"
 
     # ---- loading ----------------------------------------------------------
     def _on_file(self, path: str):
@@ -301,16 +299,16 @@ class MarkersTab(QWidget):
     def _build_markers(self) -> list[AvidMarker]:
         """Round-trip the loaded markers to Avid's marker format (absolute TC)."""
         tl = self._timeline
-        override = self._colour_override()
+        colour = self._marker_colour()
+        # Author is left empty so the writer stamps the app's own name.
         return [
             AvidMarker(
                 position=tl.start_tc + m.position,
                 track=m.track,
-                colour=override or m.colour or "Red",
+                colour=colour,
                 name="",
                 comment=m.comment,
                 duration=m.length or 1,
-                author=m.user,
             )
             for m in tl.markers
         ]
