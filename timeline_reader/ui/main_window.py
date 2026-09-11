@@ -128,6 +128,13 @@ class MainWindow(QMainWindow):
                 lambda path, key, origin=tab: self._sync_sequence(origin, path, key)
             )
 
+        # Keep the export-format choice in step across the tabs that offer one.
+        self._format_tabs = (self.cliplist, self.opticals, self.tagfinder, self.music)
+        for tab in self._format_tabs:
+            tab.exportFormatChanged.connect(
+                lambda kind, origin=tab: self._sync_export_format(origin, kind)
+            )
+
         self.tabs.addTab(self.cliplist, "  All Clips  ")
         self.tabs.addTab(self.opticals, "  Opticals List  ")
         self.tabs.addTab(self.tagfinder, "  Tag Finder  ")
@@ -153,6 +160,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
         self.keynav = KeyNav(self)  # ← → tabs, ↑ ↓ sequences, Enter browse/export
         self._sync_info_button()
+
+    def _sync_export_format(self, origin, kind: str):
+        """Mirror the format chosen in one tab into the others."""
+        for tab in self._format_tabs:
+            if tab is not origin:
+                tab.set_format_kind(kind)
 
     # ---- per-tab help paragraph ------------------------------------------
     def _current_banner(self) -> HelpBanner | None:

@@ -56,6 +56,8 @@ class MusicTab(QWidget):
     status = Signal(str)
     # (path, key) after the user picks a sequence, so sibling tabs can follow.
     sequenceChanged = Signal(str, int)
+    # Export-format kind ("csv"/"tsv"/…) chosen here, so sibling tabs can follow.
+    exportFormatChanged = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -297,6 +299,17 @@ class MusicTab(QWidget):
 
     def _on_format_changed(self, index: int):
         settings.set_export_format_kind(kind_at(index))
+        self._sync_colour_visibility()
+        self.exportFormatChanged.emit(kind_at(index))
+
+    def set_format_kind(self, kind: str):
+        """Mirror a format chosen in another tab, without re-broadcasting."""
+        idx = index_of_kind(kind)
+        if idx == self.fmt.currentIndex():
+            return
+        self.fmt.blockSignals(True)
+        self.fmt.setCurrentIndex(idx)
+        self.fmt.blockSignals(False)
         self._sync_colour_visibility()
 
     def _sync_colour_visibility(self):

@@ -69,7 +69,7 @@ def _remember_dir(key: str, path: str) -> None:
 # --------------------------------------------------------------------------- #
 # Export format (stored by stable kind, not combo index)
 # --------------------------------------------------------------------------- #
-def export_format_kind(default: str = "csv") -> str:
+def export_format_kind(default: str = "tsv") -> str:
     return _store().value("export/format_kind", default, type=str)
 
 
