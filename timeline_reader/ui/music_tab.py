@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from .. import music, settings
 from ..columns import ColumnSelection
 from ..exporters import (
+    AVID_MARKER_COLOURS,
     AvidMarker,
     MARKERS_KIND,
     export_table,
@@ -39,6 +40,7 @@ from ..exporters import (
     format_labels,
     index_of_kind,
     kind_at,
+    markers_to_text,
     rows_to_delimited,
     write_avid_markers,
 )
@@ -268,13 +270,20 @@ class MusicTab(QWidget):
         bar.addWidget(self.row_count)
         bar.addStretch(1)
 
+        # Marker-colour picker — left of Format, only shown for Markers (.txt).
+        # Music cues have always exported as Green, so that stays the default.
+        self.colour_label = QLabel("Marker colour:")
+        bar.addWidget(self.colour_label)
+        self.colour_combo = QComboBox()
+        self.colour_combo.addItems(AVID_MARKER_COLOURS)
+        self.colour_combo.setCurrentText("Green")
+        bar.addWidget(self.colour_combo)
+
         bar.addWidget(QLabel("Format:"))
         self.fmt = QComboBox()
         self.fmt.addItems(format_labels())
         self.fmt.setCurrentIndex(index_of_kind(settings.export_format_kind()))
-        self.fmt.currentIndexChanged.connect(
-            lambda i: settings.set_export_format_kind(kind_at(i))
-        )
+        self.fmt.currentIndexChanged.connect(self._on_format_changed)
         bar.addWidget(self.fmt)
 
         self.copy_btn = QPushButton("Copy")
@@ -285,7 +294,21 @@ class MusicTab(QWidget):
         self.export_btn.setObjectName("Primary")
         self.export_btn.clicked.connect(self._export)
         bar.addWidget(self.export_btn)
+        self._sync_colour_visibility()
         return bar
+
+    def _on_format_changed(self, index: int):
+        settings.set_export_format_kind(kind_at(index))
+        self._sync_colour_visibility()
+
+    def _sync_colour_visibility(self):
+        show = kind_at(self.fmt.currentIndex()) == MARKERS_KIND
+        self.colour_label.setVisible(show)
+        self.colour_combo.setVisible(show)
+
+    def _marker_colour(self) -> str:
+        """The chosen marker colour (defaults to Green for music cues)."""
+        return self.colour_combo.currentText() or "Green"
 
     # ---- loading ----------------------------------------------------------
     def _on_file(self, path: str):
@@ -562,6 +585,7 @@ class MusicTab(QWidget):
 
     def _build_markers(self, indices) -> list[AvidMarker]:
         """One marker per chosen cue: blank name, comment 'Artist - Track (Duration)'."""
+        colour = self._marker_colour()
         markers = []
         for i in indices:
             if i >= len(self._cues):
@@ -574,7 +598,7 @@ class MusicTab(QWidget):
             markers.append(AvidMarker(
                 position=cue.rec_in,               # already absolute (incl. start TC)
                 track=cue.tracks[0] if cue.tracks else "A1",
-                colour="Green",
+                colour=colour,
                 name="",
                 comment=comment,
             ))
@@ -619,6 +643,16 @@ class MusicTab(QWidget):
 
     def _copy(self):
         if not self._rows:
+            return
+        sel = self.table.selected_rows()
+        is_selection = bool(sel)
+        if kind_at(self.fmt.currentIndex()) == MARKERS_KIND:
+            indices = sel if sel else list(range(len(self._rows)))
+            markers = self._build_markers(indices)
+            text = markers_to_text(markers, self._timeline.fps, self._timeline.drop)
+            QApplication.clipboard().setText(text)
+            what = f"{len(markers)} selected markers" if is_selection else f"{len(markers)} markers"
+            self.status.emit(f"Copied {what} to clipboard (.txt)")
             return
         rows, is_selection = self._selected_or_all_rows()
         text = rows_to_delimited(self._headers, rows, "\t")
