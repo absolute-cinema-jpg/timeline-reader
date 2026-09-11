@@ -68,7 +68,7 @@ def parse_captions_open(f, path: str, key: int | None = None) -> CaptionDoc:
     doc.sequence_key = key
     doc.sequence_name = getattr(comp, "name", "") or ""
 
-    found: list[tuple[int, int, str]] = []
+    found: list[tuple[int, int, str, bool]] = []
     for tr in comp.tracks:
         if getattr(tr, "media_kind", None) != "picture":
             continue
@@ -79,9 +79,15 @@ def parse_captions_open(f, path: str, key: int | None = None) -> CaptionDoc:
 
     # Record order; a stable second key keeps identically-timed cues deterministic.
     found.sort(key=lambda c: (c[0], c[1]))
-    for i, (rec_in, rec_out, text) in enumerate(found, 1):
+    for i, (rec_in, rec_out, text, muted) in enumerate(found, 1):
         doc.cues.append(
-            Cue(index=i, start=start + rec_in, end=start + rec_out, lines=text.split("\n"))
+            Cue(
+                index=i,
+                start=start + rec_in,
+                end=start + rec_out,
+                lines=text.split("\n"),
+                muted=muted,
+            )
         )
 
     if not doc.cues:
@@ -95,8 +101,8 @@ def parse_captions_open(f, path: str, key: int | None = None) -> CaptionDoc:
 # --------------------------------------------------------------------------- #
 # Timeline walking
 # --------------------------------------------------------------------------- #
-def _walk_track(seq, found: list[tuple[int, int, str]]) -> None:
-    """Append ``(rec_in, rec_out, text)`` for every SubCap segment on a track.
+def _walk_track(seq, found: list[tuple[int, int, str, bool]]) -> None:
+    """Append ``(rec_in, rec_out, text, muted)`` for every SubCap segment on a track.
 
     Record positions accumulate exactly as the main bin parser walks a track, so
     a caption's in/out matches where it sits on the timeline. Transitions overlap
@@ -115,8 +121,32 @@ def _walk_track(seq, found: list[tuple[int, int, str]]) -> None:
         if fx is not None:
             text = _subcap_text(fx)
             if text:
-                found.append((pos, pos + length, text))
+                found.append((pos, pos + length, text, _is_disabled(comp)))
         pos += length
+
+
+def _is_disabled(node, depth: int = 0) -> bool:
+    """Whether a timeline segment is disabled ("muted") in Media Composer.
+
+    Disabling a clip wraps it in a ``Selector`` that plays a filler instead, and
+    marks it with the ``_DISABLE_CLIP_FLAG`` attribute. The flag sits on the
+    wrapper rather than the SubCap effect itself, so check the enclosing
+    components too — the effect is nested inside the selector.
+    """
+    if node is None or depth > 8:
+        return False
+    attrs = getattr(node, "attributes", None)
+    if attrs is not None and hasattr(attrs, "get"):
+        try:
+            if int(attrs.get("_DISABLE_CLIP_FLAG") or 0):
+                return True
+        except (TypeError, ValueError):
+            pass
+    pd = getattr(node, "property_data", {}) or {}
+    for tr in pd.get("tracks", []) or []:
+        if _is_disabled(getattr(tr, "component", None), depth + 1):
+            return True
+    return False
 
 
 def _find_subcap(node, depth: int = 0):

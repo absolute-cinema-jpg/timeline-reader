@@ -387,6 +387,38 @@ def test_timeline_notes_from_sample_bin():
     assert {c.clip.note for c in hits} == {"Note 1", "note 2", "note 3"}
 
 
+def test_muted_captions_excluded_by_default():
+    """Captions on clips disabled in the timeline are left out of the SRT unless
+    asked for. Media Composer wraps a disabled clip in a Selector carrying
+    ``_DISABLE_CLIP_FLAG``; the sample reel has 4 such captions out of 29.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "01-test files", "bin", "260911_Sub captions.avb",
+    )
+    if not os.path.exists(path):
+        return
+    import re
+
+    from timeline_reader.captions import to_srt, visible_cues
+    from timeline_reader.captions_avb import parse_captions
+
+    doc = parse_captions(path, 0)
+    assert doc.fps == 24.0  # a true 24 fps reel, not 23.976
+    muted = [c for c in doc.cues if c.muted]
+    assert len(doc.cues) == 29 and len(muted) == 4
+
+    assert len(visible_cues(doc)) == 25            # default: muted dropped
+    assert len(visible_cues(doc, True)) == 29      # opt in: all of them
+
+    srt = to_srt(doc)
+    for cue in muted:
+        assert cue.text() not in srt               # no muted line leaks out
+        assert cue.text() in to_srt(doc, include_muted=True)
+    # Dropping cues still leaves the output numbered 1..N with no gaps.
+    assert [int(m) for m in re.findall(r"^(\d+)$", srt, re.M)] == list(range(1, 26))
+
+
 def test_captions_from_sample_bin():
     """SubCap subtitles read straight from the bin's 'captions no VFX cards'
     sequence — timing and multi-line text — when the gitignored sample is present.

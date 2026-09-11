@@ -34,6 +34,7 @@ class Cue:
     start: int              # frames
     end: int                # frames
     lines: list[str] = field(default_factory=list)
+    muted: bool = False     # clip disabled in the timeline (bins only)
 
     def text(self) -> str:
         return "\n".join(ln for ln in self.lines if ln is not None)
@@ -142,10 +143,25 @@ def _tc(text: str, fps: float, drop: bool) -> int:
     return Timecode.from_string(text, fps, drop).frames
 
 
-def to_srt(doc: CaptionDoc) -> str:
-    """Render a CaptionDoc as SubRip text."""
+def visible_cues(doc: CaptionDoc, include_muted: bool = False) -> list[Cue]:
+    """The cues that belong in the output.
+
+    A caption sitting on a clip the editor disabled in the timeline is not on
+    screen, so it is left out unless explicitly asked for.
+    """
+    if include_muted:
+        return list(doc.cues)
+    return [c for c in doc.cues if not c.muted]
+
+
+def to_srt(doc: CaptionDoc, include_muted: bool = False) -> str:
+    """Render a CaptionDoc as SubRip text, renumbering from 1.
+
+    Muted (disabled) cues are excluded by default; caption .txt sources never
+    mark any, so this only affects bins.
+    """
     blocks = []
-    for i, cue in enumerate(doc.cues, 1):
+    for i, cue in enumerate(visible_cues(doc, include_muted), 1):
         start = Timecode(cue.start, doc.fps, doc.drop).to_srt()
         end = Timecode(max(cue.end, cue.start), doc.fps, doc.drop).to_srt()
         text = cue.text().strip() or " "

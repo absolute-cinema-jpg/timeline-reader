@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -27,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import settings
-from ..captions import CaptionDoc, parse_caption_file, to_srt
+from ..captions import CaptionDoc, parse_caption_file, to_srt, visible_cues
 from ..exporters import write_text
 from ..loader import load_captions
 from ..parsers import ParseError
@@ -176,6 +177,14 @@ class CaptionsTab(QWidget):
         row.addStretch(1)
         lay.addLayout(row)
 
+        self.muted_cb = QCheckBox("Include muted captions")
+        self.muted_cb.setToolTip(
+            "Captions on clips disabled in the Avid timeline are left out of the "
+            "SRT. Tick to include them."
+        )
+        self.muted_cb.toggled.connect(self._on_include_muted_changed)
+        lay.addWidget(self.muted_cb)
+
         self.fps_hint = QLabel(
             "Frame rate maps timecodes to SRT milliseconds. A bin sets this from "
             "the sequence, but you can override it — e.g. 24 vs 23.976, which Avid "
@@ -237,11 +246,22 @@ class CaptionsTab(QWidget):
             if self._doc is not None:
                 fps, drop = self._fps_drop()
                 self._doc.fps, self._doc.drop = fps, drop
-                self._srt = to_srt(self._doc)
-                self._set_preview(self._srt)
-                self._refresh_labels()
+                self._render()
         else:
             self._reconvert()
+
+    def _on_include_muted_changed(self, _checked: bool):
+        # Muted cues are already parsed; including them is just a re-render.
+        if self._doc is not None:
+            self._render()
+
+    def _render(self):
+        """Rebuild the SRT from the current doc and options, without re-parsing."""
+        if self._doc is None:
+            return
+        self._srt = to_srt(self._doc, include_muted=self.muted_cb.isChecked())
+        self._set_preview(self._srt)
+        self._refresh_labels()
 
     def _switch_sequence(self, index: int):
         if self._suppress_switch or not self._path or index < 0:
@@ -282,17 +302,21 @@ class CaptionsTab(QWidget):
 
     def _on_doc(self, doc: CaptionDoc):
         self._doc = doc
-        self._srt = to_srt(doc)
+        self._srt = to_srt(doc, include_muted=self.muted_cb.isChecked())
         self._show_doc()
 
     def _show_doc(self):
-        doc = self._doc
-        n = len(doc.cues)
+        n = len(self._shown_cues())
         self._set_preview(self._srt)
-        self._sync_fps_control(doc)
-        self._populate_sequences(doc)
+        self._sync_fps_control(self._doc)
+        self._populate_sequences(self._doc)
         self._refresh_labels()
         self.status.emit(f"Read {n} subtitles" if self._is_bin() else f"Converted {n} caption cues")
+
+    def _shown_cues(self):
+        if self._doc is None:
+            return []
+        return visible_cues(self._doc, self.muted_cb.isChecked())
 
     def _refresh_labels(self):
         """Update the loaded-file line, info and summary from the current doc —
@@ -300,16 +324,23 @@ class CaptionsTab(QWidget):
         doc = self._doc
         if doc is None:
             return
-        n = len(doc.cues)
+        n = len(self._shown_cues())
+        hidden = len(doc.cues) - n  # muted cues being left out
+        muted_note = f" · {hidden} muted hidden" if hidden else ""
         if self._is_bin():
             seq = doc.sequence_name or os.path.basename(self._path)
-            self.drop.show_loaded(self._path, f"{seq} · {n} subtitles · {doc.fps:g} fps")
+            self.drop.show_loaded(
+                self._path, f"{seq} · {n} subtitles · {doc.fps:g} fps{muted_note}"
+            )
             self.info.setText(f"{seq}\n{n} SubCap subtitles on this sequence.")
         else:
             self.drop.show_loaded(self._path, f"{n} cues · {self.fps.currentText()}")
             self.info.setText(f"{os.path.basename(self._path)}\n{n} caption cues detected.")
         self.cue_count.setText(f"{n} cues")
-        self.summary.setText(f"{n} cues ready to export as SubRip")
+        summary = f"{n} cues ready to export as SubRip"
+        if hidden:
+            summary += f" ({hidden} muted caption{'s' if hidden != 1 else ''} excluded)"
+        self.summary.setText(summary)
         if doc.warnings:
             self.summary.setText("⚠ " + doc.warnings[0])
         self._update_actions()
