@@ -74,6 +74,10 @@ class MainWindow(QMainWindow):
             tab.drop.fileSelected.connect(
                 lambda path, origin=tab: self._sync_timeline_file(origin, path)
             )
+            # ...and so does picking a sequence within that file.
+            tab.sequenceChanged.connect(
+                lambda path, key, origin=tab: self._sync_sequence(origin, path, key)
+            )
 
         self.tabs.addTab(self.cliplist, "  All Clips  ")
         self.tabs.addTab(self.opticals, "  Opticals List  ")
@@ -144,6 +148,14 @@ class MainWindow(QMainWindow):
                 mirrored = True
         if mirrored:
             self._status(f"Loaded {os.path.basename(path)} into every timeline tab")
+
+    def _sync_sequence(self, origin, path: str, key: int):
+        """Mirror a sequence picked in one tab into the others, so the choice
+        follows the user between tabs. ``set_sequence`` loads directly (not via
+        the combo), so siblings don't re-emit and it cannot loop back."""
+        for tab in self._timeline_tabs:
+            if tab is not origin:
+                tab.set_sequence(path, key)
 
     def _status(self, message: str):
         self.statusBar().showMessage(message, 8000)

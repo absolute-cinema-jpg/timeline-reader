@@ -35,7 +35,7 @@ def parse(path: str, key: int | None = None) -> Timeline:
             for i, c in enumerate(candidates)
         ]
         if key is None or not (0 <= key < len(candidates)):
-            key = 0
+            key = _default_key(candidates)
         comp = candidates[key]
         fps, drop = _edit_rate(comp)
         tl = Timeline(
@@ -185,16 +185,26 @@ def _find_tape(mob):
 
 
 def _master_compositions(f):
-    """Ordered list of picture-bearing compositions, longest first."""
-    scored = []
+    """Picture-bearing compositions in alphabetical order, as the sequence
+    picker lists them; :func:`_default_key` picks the longest as the default."""
+    comps = []
     for m in f.content.mobs:
         if m.__class__.__name__ != "CompositionMob":
             continue
         total, ntracks = _picture_extent(m)
         if ntracks:
-            scored.append(((-total, m.name or ""), m))
-    scored.sort(key=lambda x: x[0])
-    return [m for _, m in scored]
+            comps.append(m)
+    comps.sort(key=lambda m: ((m.name or "").casefold(), -_picture_extent(m)[0]))
+    return comps
+
+
+def _default_key(candidates) -> int:
+    """Index of the longest composition — the likeliest master sequence."""
+    return min(
+        range(len(candidates)),
+        key=lambda i: (-_picture_extent(candidates[i])[0], candidates[i].name or ""),
+        default=0,
+    )
 
 
 def _picture_extent(m):

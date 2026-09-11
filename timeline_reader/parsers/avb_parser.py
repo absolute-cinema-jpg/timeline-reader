@@ -48,7 +48,7 @@ def open_bin(path: str):
 
 
 def candidates(f) -> list:
-    """The bin's selectable sequences, computed once per open file.
+    """The bin's selectable sequences (alphabetical), computed once per open file.
 
     Enumerating candidates touches every mob in the bin, so the timeline parse
     and the caption parse that share one open file share this list too.
@@ -57,6 +57,20 @@ def candidates(f) -> list:
     if cached is None:
         cached = f._tr_candidates = _master_compositions(f.content.mobs)
     return cached
+
+
+def default_key(f) -> int:
+    """Index into :func:`candidates` opened when the user hasn't picked one:
+    the likeliest master sequence (most picture tracks, then longest)."""
+    cands = candidates(f)
+    return min(range(len(cands)), key=lambda i: _rank(cands[i]), default=0)
+
+
+def resolve_key(f, key: int | None) -> int:
+    cands = candidates(f)
+    if key is None or not (0 <= key < len(cands)):
+        return default_key(f)
+    return key
 
 
 def sequence_options(f) -> list[SequenceOption]:
@@ -77,8 +91,7 @@ def parse_open(f, path: str, key: int | None = None) -> Timeline:
     if not cands:
         raise ParseError("No editable sequence with picture tracks found in bin.")
     options = sequence_options(f)
-    if key is None or not (0 <= key < len(cands)):
-        key = 0
+    key = resolve_key(f, key)
     comp = cands[key]
 
     fps, drop = _sequence_rate(comp)
@@ -732,30 +745,40 @@ def _first_source_clip(comp):
 # Sequence selection & rate
 # --------------------------------------------------------------------------- #
 def _master_compositions(mobs):
-    """Ordered list of master sequences (CompositionMobs with picture Sequence
-    tracks), best first. Subclips / master clips carry a ``usage`` and are
-    excluded; if that leaves nothing, fall back to any picture-sequence comp.
-    The ordering is deterministic so an option key stays stable between the
-    enumeration shown to the user and the re-parse of their choice."""
+    """Master sequences (CompositionMobs with picture Sequence tracks) in
+    alphabetical order, as the sequence picker lists them. Subclips / master
+    clips carry a ``usage`` and are excluded; if that leaves nothing, fall back
+    to any picture-sequence comp. The ordering is deterministic so an option
+    key stays stable between the enumeration shown to the user and the
+    re-parse of their choice; :func:`default_key` picks the likeliest master."""
     masters, fallback = [], []
     for m in mobs:
         if getattr(m, "mob_type", None) != "CompositionMob":
             continue
-        pic = [
-            t for t in m.tracks
-            if getattr(t, "media_kind", None) == "picture"
-            and isinstance(t.component, Sequence)
-        ]
-        if not pic:
+        if not _picture_tracks(m):
             continue
-        length = max((int(getattr(t.component, "length", 0) or 0) for t in pic), default=0)
-        entry = ((-len(pic), -length, _seq_name(m)), m)
-        fallback.append(entry)
+        fallback.append(m)
         if not getattr(m, "usage", None):
-            masters.append(entry)
+            masters.append(m)
     chosen = masters or fallback
-    chosen.sort(key=lambda x: x[0])
-    return [m for _, m in chosen]
+    chosen.sort(key=lambda m: (_seq_name(m).casefold(), _rank(m)))
+    return chosen
+
+
+def _picture_tracks(m) -> list:
+    return [
+        t for t in m.tracks
+        if getattr(t, "media_kind", None) == "picture"
+        and isinstance(t.component, Sequence)
+    ]
+
+
+def _rank(m) -> tuple:
+    """Sort key placing the likeliest master sequence first: most picture
+    tracks, then longest, then by name."""
+    pic = _picture_tracks(m)
+    length = max((int(getattr(t.component, "length", 0) or 0) for t in pic), default=0)
+    return (-len(pic), -length, _seq_name(m))
 
 
 def _seq_name(m) -> str:
@@ -763,8 +786,7 @@ def _seq_name(m) -> str:
 
 
 def _seq_detail(m) -> str:
-    pic = [t for t in m.tracks
-           if getattr(t, "media_kind", None) == "picture" and isinstance(t.component, Sequence)]
+    pic = _picture_tracks(m)
     length = max((int(getattr(t.component, "length", 0) or 0) for t in pic), default=0)
     fps, _ = _sequence_rate(m)
     return f"{len(pic)} video track{'s' if len(pic) != 1 else ''} · {frames_to_tc(length, fps)}"

@@ -73,6 +73,58 @@ def test_clearing_does_not_propagate():
     assert calls == [("cliplist", "")]
 
 
+def _window_with_stubbed_sequence_loads():
+    """A MainWindow whose tabs record sequence loads instead of parsing."""
+    win = MainWindow()
+    loads: list[tuple[str, str, int | None]] = []
+    for name, tab in (
+        ("opticals", win.opticals),
+        ("cliplist", win.cliplist),
+        ("tagfinder", win.tagfinder),
+        ("music", win.music),
+    ):
+        def stub(path, key, _name=name, _tab=tab):
+            _tab._seq_key = key
+            loads.append((_name, path, key))
+        tab._load = stub
+        tab._path = "/dir/THR.avb"
+
+    def caption_stub(_tab=win.captions):
+        loads.append(("captions", _tab._path, _tab._seq_key))
+    win.captions._reconvert = caption_stub
+    win.captions._path = "/dir/THR.avb"
+    return win, loads
+
+
+def test_picking_a_sequence_follows_into_every_tab():
+    win, loads = _window_with_stubbed_sequence_loads()
+    # Populate cliplist's picker as a parsed 3-sequence bin would, then pick #2.
+    win.cliplist._suppress_switch = True
+    win.cliplist.seq_combo.addItems(["A", "B", "C"])
+    win.cliplist.seq_combo.setCurrentIndex(0)
+    win.cliplist._suppress_switch = False
+    win.cliplist.seq_combo.setCurrentIndex(2)
+    _app.processEvents()
+    assert set(loads) == {
+        ("cliplist", "/dir/THR.avb", 2),
+        ("opticals", "/dir/THR.avb", 2),
+        ("tagfinder", "/dir/THR.avb", 2),
+        ("music", "/dir/THR.avb", 2),
+        ("captions", "/dir/THR.avb", 2),
+    }
+    assert win.music._seq_key == 2 and win.captions._seq_key == 2
+
+
+def test_tab_already_on_that_sequence_is_not_reloaded():
+    win, loads = _window_with_stubbed_sequence_loads()
+    win.music._seq_key = 1  # already showing sequence 1 of this file
+    win.opticals.sequenceChanged.emit("/dir/THR.avb", 1)
+    _app.processEvents()
+    assert ("music", "/dir/THR.avb", 1) not in loads
+    assert ("cliplist", "/dir/THR.avb", 1) in loads
+    assert ("opticals", "/dir/THR.avb", 1) not in loads  # the origin loads itself
+
+
 def test_fps_preset_matches_exact_rate_not_rounded():
     """A 24 fps sequence must map to '24', not '23.976' — rounding collapses the
     two (both round to 24) and, since 23.976 is listed first, would mislabel every

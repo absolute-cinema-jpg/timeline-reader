@@ -108,6 +108,8 @@ def _fps_preset_index(fps: float, drop: bool) -> int | None:
 
 class CaptionsTab(QWidget):
     status = Signal(str)
+    # (path, key) after the user picks a sequence, so sibling tabs can follow.
+    sequenceChanged = Signal(str, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -323,6 +325,15 @@ class CaptionsTab(QWidget):
             return
         self._seq_key = index
         self._reconvert()
+        self.sequenceChanged.emit(self._path, index)
+
+    def set_sequence(self, path: str, key: int):
+        """Follow a sequence picked in a sibling tab (no re-emit)."""
+        if path == self._path and key == self._seq_key:
+            return
+        self._path = path
+        self._seq_key = key
+        self._reconvert()
 
     def _reconvert(self):
         if not self._path:
@@ -357,6 +368,8 @@ class CaptionsTab(QWidget):
 
     def _on_doc(self, doc: CaptionDoc):
         self._doc = doc
+        if doc.sequence_key is not None:
+            self._seq_key = doc.sequence_key  # the default the parser resolved
         self._show_doc()
 
     def _show_doc(self):

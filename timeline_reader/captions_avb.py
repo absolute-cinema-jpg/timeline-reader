@@ -21,6 +21,7 @@ from .parsers.avb_parser import (
     _sequence_rate,
     candidates,
     open_bin,
+    resolve_key,
     sequence_options,
 )
 
@@ -57,8 +58,7 @@ def parse_captions_open(f, path: str, key: int | None = None) -> CaptionDoc:
     cands = candidates(f)
     if not cands:
         raise ParseError("No editable sequence with picture tracks found in bin.")
-    if key is None or not (0 <= key < len(cands)):
-        key = 0
+    key = resolve_key(f, key)
     comp = cands[key]
 
     fps, drop = _sequence_rate(comp)

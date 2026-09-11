@@ -74,6 +74,8 @@ class _ParseWorker(QThread):
 
 class TimelineReportTab(QWidget):
     status = Signal(str)
+    # (path, key) after the user picks a sequence, so sibling tabs can follow.
+    sequenceChanged = Signal(str, int)
 
     def __init__(
         self,
@@ -99,6 +101,7 @@ class TimelineReportTab(QWidget):
         self._row_durations: list[int] = []
         self._worker: _ParseWorker | None = None
         self._path: str = ""
+        self._seq_key: int | None = None  # sequence requested within the file
         self._suppress_switch = False
         self._col_ids: list[str] = []
         self._all_contexts: list = []       # every row from the loaded sequence
@@ -293,8 +296,17 @@ class TimelineReportTab(QWidget):
             return
         self.status.emit("Switching sequence…")
         self._load(self._path, key=index)
+        self.sequenceChanged.emit(self._path, index)
+
+    def set_sequence(self, path: str, key: int):
+        """Follow a sequence picked in a sibling tab (no re-emit)."""
+        if path == self._path and key == self._seq_key:
+            return
+        self._path = path
+        self._load(path, key=key)
 
     def _load(self, path: str, key: int | None):
+        self._seq_key = key
         self.status.emit(f"Reading {os.path.basename(path)}…")
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
         self.export_btn.setEnabled(False)
@@ -347,6 +359,7 @@ class TimelineReportTab(QWidget):
             label = opt.name if not opt.detail else f"{opt.name}   ({opt.detail})"
             self.seq_combo.addItem(label)
         current = tl.sequence_key if tl.sequence_key is not None else 0
+        self._seq_key = current
         self.seq_combo.setCurrentIndex(current)
         self._suppress_switch = False
         self.seq_row.show()
@@ -360,6 +373,7 @@ class TimelineReportTab(QWidget):
     def _reset(self):
         self._timeline = None
         self._path = ""
+        self._seq_key = None
         self._headers, self._rows = [], []
         self._row_durations = []
         self._all_contexts, self._active_contexts = [], []

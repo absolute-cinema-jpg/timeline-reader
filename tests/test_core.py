@@ -173,7 +173,7 @@ def test_motion_variable_speed_reports_percent_at_source_tc():
 def test_transitions_are_standalone_rows_in_opticals():
     import os
 
-    from timeline_reader.parsers.avb_parser import parse
+    from timeline_reader.parsers.avb_parser import parse, sequences
     from timeline_reader.effects import is_optical_category
     from timeline_reader.timecode import frames_to_tc
 
@@ -181,7 +181,8 @@ def test_transitions_are_standalone_rows_in_opticals():
                         "01-test files", "bin", "timeline-reader test.avb")
     if not os.path.exists(path):
         return
-    tl = parse(path, key=5)  # the "opticals" sequence
+    key = next(o.key for o in sequences(path) if o.name == "opticals")
+    tl = parse(path, key=key)
 
     dissolves = [c for c in tl.clips if any(e.category == "Dissolve" for e in c.effects)]
     assert dissolves, "dissolves should appear as their own optical rows"
@@ -399,9 +400,10 @@ def test_reel_captions_offset_to_start_of_export():
     if not os.path.exists(path):
         return
     from timeline_reader.captions import to_srt, visible_cues
-    from timeline_reader.captions_avb import parse_captions
+    from timeline_reader.captions_avb import caption_sequences, parse_captions
 
-    doc = parse_captions(path, 0)                 # SubV_Reel4, starts 03:59:52:00
+    key = next(o.key for o in caption_sequences(path) if o.name.startswith("SubV_Reel4"))
+    doc = parse_captions(path, key)               # starts 03:59:52:00
     assert doc.start_tc == 345408
 
     # Absolute: four hours in — past the end of an 18:55 export.
@@ -430,9 +432,10 @@ def test_muted_captions_excluded_by_default():
     import re
 
     from timeline_reader.captions import to_srt, visible_cues
-    from timeline_reader.captions_avb import parse_captions
+    from timeline_reader.captions_avb import caption_sequences, parse_captions
 
-    doc = parse_captions(path, 0)
+    key = next(o.key for o in caption_sequences(path) if o.name.startswith("SubV_Reel4"))
+    doc = parse_captions(path, key)
     assert doc.fps == 24.0  # a true 24 fps reel, not 23.976
     muted = [c for c in doc.cues if c.muted]
     assert len(doc.cues) == 29 and len(muted) == 4
