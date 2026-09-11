@@ -7,6 +7,7 @@ import os
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
+    QObject,
     QSortFilterProxyModel,
     Qt,
     Signal,
@@ -31,6 +32,60 @@ from . import theme
 _MONO_HINTS = ("in", "out", "duration", "#")
 # Identity columns tinted apart from the rest (matched on header label).
 _IDENTITY_LABELS = {"#", "clip name"}
+
+
+class LoadWorkers(QObject):
+    """Owns a tab's background load threads until each has finished.
+
+    A ``QThread`` must never be garbage-collected while it is still running —
+    Qt aborts the whole app ("QThread: Destroyed while thread is still
+    running"). Tabs used to keep a single ``_worker`` reference and overwrite it
+    on every load, so a second load issued while a slow parse was still going
+    (a 500 MB bin on an older Mac, then a sequence pick or a second drop)
+    orphaned the running thread, which then destroyed itself as it finished.
+
+    Every started worker is held here until its ``finished`` signal. Only the
+    most recently started one is *current*: a result or error from a superseded
+    load is dropped, so a late-arriving old parse can't overwrite a newer
+    choice. Slots are bound methods of this object (which lives on the tab's
+    thread), so callbacks always run on the UI thread.
+    """
+
+    def __init__(self, on_done, on_failed, parent: QObject | None = None):
+        super().__init__(parent)
+        self._on_done = on_done
+        self._on_failed = on_failed
+        self._live: list = []
+        self._current = None
+
+    def start(self, worker) -> None:
+        """Start ``worker`` (a QThread with ``done``/``failed`` signals) and
+        make it the current load."""
+        self._live.append(worker)
+        self._current = worker
+        worker.done.connect(self._done)
+        worker.failed.connect(self._failed)
+        worker.finished.connect(self._finished)
+        worker.start()
+
+    @property
+    def busy(self) -> bool:
+        return self._current is not None
+
+    def _done(self, result):
+        if self.sender() is self._current:
+            self._on_done(result)
+
+    def _failed(self, message: str):
+        if self.sender() is self._current:
+            self._on_failed(message)
+
+    def _finished(self):
+        worker = self.sender()
+        if worker is self._current:
+            self._current = None
+        if worker in self._live:
+            self._live.remove(worker)
 
 
 class DropZone(QFrame):

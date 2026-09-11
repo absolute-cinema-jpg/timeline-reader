@@ -47,7 +47,7 @@ from ..rowset import RowSet
 from ..timecode import frames_to_duration
 from .column_dialog import ColumnDialog
 from .report_tab import TIMELINE_EXTS, _ParseWorker
-from .widgets import DropZone, ReportTable, make_card, section_label
+from .widgets import DropZone, LoadWorkers, ReportTable, make_card, section_label
 
 
 class MusicTab(QWidget):
@@ -64,7 +64,7 @@ class MusicTab(QWidget):
         self._headers: list[str] = []
         self._col_ids: list[str] = []
         self._row_durations: list[int] = []
-        self._worker: _ParseWorker | None = None
+        self._workers = LoadWorkers(self._on_parsed, self._on_failed, parent=self)
         self._path: str = ""
         self._seq_key: int | None = None  # sequence requested within the file
         self._suppress_switch = False
@@ -305,11 +305,9 @@ class MusicTab(QWidget):
         self.status.emit(f"Reading {os.path.basename(path)}…")
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
         self.export_btn.setEnabled(False)
-        self._worker = _ParseWorker(path, key)
-        self._worker.done.connect(self._on_parsed)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.finished.connect(lambda: QGuiApplication.restoreOverrideCursor())
-        self._worker.start()
+        worker = _ParseWorker(path, key)
+        worker.finished.connect(lambda: QGuiApplication.restoreOverrideCursor())
+        self._workers.start(worker)
 
     def _on_parsed(self, tl: Timeline):
         self._timeline = tl

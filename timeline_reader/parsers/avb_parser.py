@@ -39,12 +39,23 @@ def open_bin(path: str):
     A master mob shared by fifty segments gets read fifty times. Swapping in a
     plain dict for the life of the ``with`` block makes every object a one-time
     read; the whole cache is released when the bin is closed.
+
+    Every object holds a ``root`` back-reference to the file, so once the file
+    holds them too they form reference cycles that only the cyclic GC would
+    reclaim — and a big bin pinned this way is several times its file size in
+    memory (roughly 5x: ~2.5 GB for a 500 MB bin). Emptying the cache on exit
+    breaks the cycles so the memory is freed immediately rather than lingering
+    until the collector gets round to it.
     """
     if avb is None:  # pragma: no cover
         raise ParseError(f"pyavb is not available: {_IMPORT_ERROR}")
     with avb.open(path) as f:
         f.object_cache = {}
-        yield f
+        try:
+            yield f
+        finally:
+            f.object_cache.clear()
+            f._tr_candidates = None
 
 
 def candidates(f) -> list:

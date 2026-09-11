@@ -33,7 +33,7 @@ from ..exporters import write_text
 from ..loader import load_captions
 from ..parsers import ParseError
 from ..timecode import Timecode
-from .widgets import DropZone, make_card, section_label
+from .widgets import DropZone, LoadWorkers, make_card, section_label
 
 
 def _nearest_hour(frames: int, fps: float) -> int:
@@ -119,7 +119,7 @@ class CaptionsTab(QWidget):
         self._seq_key: int | None = None      # chosen sequence within a bin
         self._origin_offsets: list[int] = [0]  # frames to subtract, per origin choice
         self._loading = False                  # replacing the preview programmatically
-        self._worker: _CaptionWorker | None = None
+        self._workers = LoadWorkers(self._on_doc, self._on_failed, parent=self)
         self._suppress_switch = False          # populating the sequence combo
         self._build()
 
@@ -343,11 +343,9 @@ class CaptionsTab(QWidget):
             # A bin is read on a worker, like the other timeline tabs.
             self.status.emit(f"Reading {os.path.basename(self._path)}…")
             QGuiApplication.setOverrideCursor(Qt.BusyCursor)
-            self._worker = _CaptionWorker(self._path, self._seq_key)
-            self._worker.done.connect(self._on_doc)
-            self._worker.failed.connect(self._on_failed)
-            self._worker.finished.connect(lambda: QGuiApplication.restoreOverrideCursor())
-            self._worker.start()
+            worker = _CaptionWorker(self._path, self._seq_key)
+            worker.finished.connect(lambda: QGuiApplication.restoreOverrideCursor())
+            self._workers.start(worker)
             return
         if ext != ".txt":
             self._unsupported(ext)

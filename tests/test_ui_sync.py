@@ -145,6 +145,59 @@ def test_fps_preset_matches_exact_rate_not_rounded():
     assert label(60000 / 1001) == "59.94"
 
 
+
+
+def test_second_load_mid_parse_keeps_first_worker_alive_and_ignores_its_result():
+    """Regression for a crash on slow loads: issuing another load while a tab's
+    parse thread was still running dropped the only reference to that QThread,
+    and Qt aborts the app when a running QThread is destroyed. Workers must stay
+    owned until they finish, and a superseded load's result must not land."""
+    import threading
+    import time
+    import weakref
+
+    from timeline_reader.models import Timeline
+    from timeline_reader.ui import report_tab
+
+    gates = {1: threading.Event(), 2: threading.Event()}
+    real = report_tab.load_timeline
+
+    def gated(path, key=None):
+        gates[key].wait(5)
+        return Timeline(name=f"seq{key}", source_format="Avid Bin", source_path=path)
+
+    report_tab.load_timeline = gated
+    try:
+        tab = MainWindow().cliplist
+        tab._path = "/dir/THR.avb"
+        tab._load("/dir/THR.avb", key=1)
+        first = weakref.ref(tab._workers._current)
+        tab._load("/dir/THR.avb", key=2)  # supersedes #1 while it is still parsing
+        assert first() is not None and first().isRunning()
+        assert len(tab._workers._live) == 2
+
+        gates[2].set()  # the newer load lands first...
+        _wait_until(lambda: tab._timeline is not None)
+        assert tab._timeline.name == "seq2"
+
+        gates[1].set()  # ...then the stale one finishes: kept alive, then dropped
+        _wait_until(lambda: not tab._workers._live)
+        assert tab._timeline.name == "seq2"
+        assert not tab._workers.busy
+    finally:
+        report_tab.load_timeline = real
+        for g in gates.values():
+            g.set()
+
+
+def _wait_until(cond, timeout: float = 5.0):
+    import time
+    end = time.monotonic() + timeout
+    while not cond():
+        _app.processEvents()
+        assert time.monotonic() < end, "timed out waiting for the worker"
+        time.sleep(0.01)
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_") and callable(_fn):
