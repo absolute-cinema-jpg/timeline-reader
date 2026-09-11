@@ -102,7 +102,7 @@ QMainWindow, #RootView {{ background: {BG_APP}; }}
     background: {HEADER_BG};
     border-bottom: 1px solid {BORDER};
 }}
-#AppTitle {{ color: {TEXT_BRIGHT}; font-size: 15px; font-weight: 600; }}
+#AppTitle {{ color: {TEXT_BRIGHT}; font-size: 18px; font-weight: 600; }}
 #AppSubtitle {{ color: {TEXT_DIM}; font-size: 12px; }}
 
 /* ---- Page tabs (Resolve-style pill buttons) ---- */

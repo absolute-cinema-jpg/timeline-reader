@@ -196,15 +196,9 @@ class MainWindow(QMainWindow):
             logo.setStyleSheet("color:#4a90d9; font-size:22px;")
         lay.addWidget(logo)
 
-        title_box = QVBoxLayout()
-        title_box.setSpacing(0)
         title = QLabel(__app_name__)
         title.setObjectName("AppTitle")
-        sub = QLabel("Media Composer timeline → department reports")
-        sub.setObjectName("AppSubtitle")
-        title_box.addWidget(title)
-        title_box.addWidget(sub)
-        lay.addLayout(title_box)
+        lay.addWidget(title)
 
         lay.addStretch(1)
         ver = QLabel(f"v{__version__}")
