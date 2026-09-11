@@ -271,12 +271,10 @@ class MusicTab(QWidget):
         bar.addStretch(1)
 
         # Marker-colour picker — left of Format, only shown for Markers (.txt).
-        # Music cues have always exported as Green, so that stays the default.
         self.colour_label = QLabel("Marker colour:")
         bar.addWidget(self.colour_label)
         self.colour_combo = QComboBox()
-        self.colour_combo.addItems(AVID_MARKER_COLOURS)
-        self.colour_combo.setCurrentText("Green")
+        self.colour_combo.addItems(AVID_MARKER_COLOURS)  # defaults to Red (first)
         bar.addWidget(self.colour_combo)
 
         bar.addWidget(QLabel("Format:"))
@@ -307,8 +305,8 @@ class MusicTab(QWidget):
         self.colour_combo.setVisible(show)
 
     def _marker_colour(self) -> str:
-        """The chosen marker colour (defaults to Green for music cues)."""
-        return self.colour_combo.currentText() or "Green"
+        """The chosen marker colour (defaults to Red)."""
+        return self.colour_combo.currentText() or "Red"
 
     # ---- loading ----------------------------------------------------------
     def _on_file(self, path: str):
