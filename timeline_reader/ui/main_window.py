@@ -74,8 +74,8 @@ class MainWindow(QMainWindow):
 
         self.opticals = TimelineReportTab(
             report=OPTICALS_REPORT,
-            drop_title="Drop a timeline file",
-            drop_sub="Avid bin (.avb) gives full effect data · EDL / AAF also accepted",
+            drop_title="Drop an Avid bin (.avb)",
+            drop_sub="Full effect data read straight from the bin",
             export_basename="opticals",
             empty_hint="Load a timeline to build the opticals list",
             count_label="Opticals",
@@ -83,27 +83,26 @@ class MainWindow(QMainWindow):
                 "Lists only clips that carry an <b>Avid effect</b> — resizes, "
                 "reframes, 3D warps, timewarps, dissolves and the like — one row "
                 "per effect. Plain cuts are left out. Load an <b>Avid bin "
-                "(.avb)</b> for full effect detail; EDL and AAF carry much less. "
-                "The table works like All Clips: choose and reorder columns, "
-                "sort, remove rows, then export or copy."
+                "(.avb)</b>, which holds the full effect detail. The table works "
+                "like All Clips: choose and reorder columns, sort, remove rows, "
+                "then export or copy."
             ),
         )
         self.cliplist = TimelineReportTab(
             report=CLIPLIST_REPORT,
-            drop_title="Drop a timeline file",
-            drop_sub="Avid bin (.avb), EDL, AAF or tab-delimited",
+            drop_title="Drop an Avid bin (.avb)",
+            drop_sub="Every clip on the timeline, across all tracks",
             export_basename="cliplist",
             empty_hint="Load a timeline to build the clip list",
             count_label="Clips",
             description=(
                 "Every clip on the timeline — one row per segment, across all "
-                "video and audio tracks. Drop an Avid bin (.avb), EDL, AAF or "
-                "tab-delimited export. Use <b>Choose columns…</b> to add source "
-                "metadata (Scene, Take, clip colour, notes), and drag headers to "
-                "reorder or click one to sort. Select rows to export only those, "
-                "or press <b>Delete</b> to remove rows you don't want "
-                "(<b>⌘Z</b> undoes). Export to CSV / Excel / etc. or copy to the "
-                "clipboard."
+                "video and audio tracks. Drop an <b>Avid bin (.avb)</b>. Use "
+                "<b>Choose columns…</b> to add source metadata (Scene, Take, clip "
+                "colour, notes), and drag headers to reorder or click one to sort. "
+                "Select rows to export only those, or press <b>Delete</b> to "
+                "remove rows you don't want (<b>⌘Z</b> undoes). Export to CSV / "
+                "Excel / etc. or copy to the clipboard."
             ),
         )
         self.tagfinder = TagFinderTab()

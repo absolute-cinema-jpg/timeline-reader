@@ -92,8 +92,8 @@ class MusicTab(QWidget):
         top = QHBoxLayout()
         top.setSpacing(14)
         self.drop = DropZone(
-            "Drop a timeline file",
-            "Avid bin (.avb) carries music tracks · EDL / AAF also accepted",
+            "Drop an Avid bin (.avb)",
+            "Music tracks read straight from the bin",
             TIMELINE_EXTS,
         )
         self.drop.fileSelected.connect(self._on_file)
