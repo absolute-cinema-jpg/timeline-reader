@@ -1,5 +1,5 @@
-"""Arrow-key / Enter navigation: ← → change tab, ↑ ↓ change sequence, Enter
-browses when nothing is loaded and exports once something is.
+"""Keyboard navigation: ⇧← ⇧→ change tab, ⇧↑ ⇧↓ change sequence, ⇧Enter opens
+the file picker, Enter exports. Plain arrows stay with the table.
 
 Run with:  QT_QPA_PLATFORM=offscreen ./.venv/bin/python tests/test_keynav.py
 """
@@ -30,12 +30,12 @@ def _window():
     return win
 
 
-def _key(win, key):
-    QTest.keyClick(win.tabs.currentWidget(), key)
+def _key(win, key, mods=Qt.ShiftModifier):
+    QTest.keyClick(win.tabs.currentWidget(), key, mods)
     _app.processEvents()
 
 
-def test_left_right_step_through_tabs_in_order():
+def test_shift_left_right_step_through_tabs_in_order():
     win = _window()
     assert win.tabs.currentWidget() is win.cliplist
     _key(win, Qt.Key_Right)
@@ -49,7 +49,17 @@ def test_left_right_step_through_tabs_in_order():
     assert win.tabs.currentWidget() is win.captions
 
 
-def test_enter_browses_when_nothing_is_loaded_and_exports_once_loaded():
+def test_plain_arrows_are_left_to_the_table():
+    win = _window()
+    win.cliplist.table.setFocus()
+    _key(win, Qt.Key_Right, Qt.NoModifier)
+    _key(win, Qt.Key_Down, Qt.NoModifier)
+    assert win.tabs.currentWidget() is win.cliplist
+    _key(win, Qt.Key_Right, Qt.ControlModifier)  # other modifiers: not ours either
+    assert win.tabs.currentWidget() is win.cliplist
+
+
+def test_shift_enter_browses_and_enter_exports():
     win = _window()
     calls: list[str] = []
     win.cliplist.drop._browse = lambda: calls.append("browse")
@@ -57,20 +67,24 @@ def test_enter_browses_when_nothing_is_loaded_and_exports_once_loaded():
     win.cliplist.export_btn.clicked.disconnect()
     win.cliplist.export_btn.clicked.connect(win.cliplist._export)
 
-    _key(win, Qt.Key_Return)
+    _key(win, Qt.Key_Return, Qt.NoModifier)  # nothing loaded: Export is disabled
+    assert calls == []
+    _key(win, Qt.Key_Return)                 # ⇧Enter: Browse…
     assert calls == ["browse"]
 
     win.cliplist._path = "/dir/THR.avb"
     win.cliplist.export_btn.setEnabled(True)
-    _key(win, Qt.Key_Return)
+    _key(win, Qt.Key_Return, Qt.NoModifier)
     assert calls == ["browse", "export"]
+    _key(win, Qt.Key_Return)                 # ⇧Enter with a file loaded: Replace…
+    assert calls == ["browse", "export", "browse"]
 
     win.cliplist.export_btn.setEnabled(False)  # e.g. still loading: nothing happens
-    _key(win, Qt.Key_Return)
-    assert calls == ["browse", "export"]
+    _key(win, Qt.Key_Return, Qt.NoModifier)
+    assert calls == ["browse", "export", "browse"]
 
 
-def test_up_down_cycle_sequences_only_with_a_multi_sequence_file():
+def test_shift_up_down_cycle_sequences_only_with_a_multi_sequence_file():
     win = _window()
     tab = win.cliplist
     loads: list[int] = []
@@ -107,7 +121,7 @@ def test_text_fields_keep_their_own_keys():
     win.tagfinder._search.setFocus()
     _app.processEvents()
     assert _app.focusWidget() is win.tagfinder._search
-    QTest.keyClick(win.tagfinder._search, Qt.Key_Right)
+    QTest.keyClick(win.tagfinder._search, Qt.Key_Right, Qt.ShiftModifier)  # selects text
     _app.processEvents()
     assert win.tabs.currentWidget() is win.tagfinder
 

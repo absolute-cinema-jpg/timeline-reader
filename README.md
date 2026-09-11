@@ -104,10 +104,10 @@ rows** button (next to *Clear selection*, shown only once you've deleted
 something) to bring every row back. Deletions survive column reorders and only
 affect the export/preview — the loaded file is never changed.
 
-**Keyboard:** **← →** move between tabs, **↑ ↓** cycle through the sequences in
-the loaded bin, and **Enter** opens the file picker when nothing is loaded or
-exports the current report once something is. Text fields keep these keys for
-themselves. **⌘W** closes the app.
+**Keyboard:** **⇧← ⇧→** move between tabs, **⇧↑ ⇧↓** cycle through the
+sequences in the loaded bin, **⇧Enter** opens the file picker (Browse… /
+Replace…) and **Enter** exports the current report. Plain arrows move around
+the table as usual, and text fields keep their keys. **⌘W** closes the app.
 
 **Markers (`.txt`)** writes a Media Composer marker-import file — one marker per
 row, placed at the row's record timecode — so a report round-trips back onto the

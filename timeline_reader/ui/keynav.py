@@ -1,14 +1,17 @@
 """Keyboard navigation for the main window.
 
-    ←  →       previous / next tab
-    ↑  ↓       previous / next sequence in the loaded bin (wraps)
-    Enter      no file loaded: open the file picker; file loaded: Export
+    ⇧←  ⇧→     previous / next tab (wraps)
+    ⇧↑  ⇧↓     previous / next sequence in the loaded bin (wraps)
+    ⇧Enter     open the file picker (Browse… / Replace…)
+    Enter      Export
 
-One application-wide event filter, so the keys work wherever focus happens to
-be — except in widgets that need the same keys for themselves: text fields
-(the Tag Finder search, the SRT preview), spin boxes and combo boxes keep
-their arrows and Enter. Modified keys (⌘←, ⌥→ …) are left alone, as is
-anything typed while a popup or dialog is up.
+The arrows take Shift so the plain arrows stay with the report table, which
+uses them to move the highlighted row and column. One application-wide event
+filter, so the keys work wherever focus happens to be — except in widgets that
+need the same keys for themselves: text fields (the Tag Finder search, the SRT
+preview), spin boxes and combo boxes keep their arrows and Enter. Other
+modifiers (⌘←, ⌥→ …) are left alone, as is anything typed while a popup or
+dialog is up.
 """
 
 from __future__ import annotations
@@ -37,22 +40,26 @@ class KeyNav(QObject):
     def eventFilter(self, obj, event):
         if event.type() != QEvent.KeyPress or not self._applies():
             return False
-        if event.modifiers() & ~Qt.KeypadModifier:
-            return False
+        mods = event.modifiers() & ~Qt.KeypadModifier
         key = event.key()
-        if key == Qt.Key_Right:
-            self.step_tab(+1)
-        elif key == Qt.Key_Left:
-            self.step_tab(-1)
-        elif key == Qt.Key_Down:
-            self.step_sequence(+1)
-        elif key == Qt.Key_Up:
-            self.step_sequence(-1)
-        elif key in (Qt.Key_Return, Qt.Key_Enter):
-            self.activate()
-        else:
-            return False
-        return True
+        if mods == Qt.ShiftModifier:
+            if key == Qt.Key_Right:
+                self.step_tab(+1)
+            elif key == Qt.Key_Left:
+                self.step_tab(-1)
+            elif key == Qt.Key_Down:
+                self.step_sequence(+1)
+            elif key == Qt.Key_Up:
+                self.step_sequence(-1)
+            elif key in (Qt.Key_Return, Qt.Key_Enter):
+                self.browse()
+            else:
+                return False
+            return True
+        if mods == Qt.NoModifier and key in (Qt.Key_Return, Qt.Key_Enter):
+            self.export()
+            return True
+        return False
 
     def _applies(self) -> bool:
         app = QApplication.instance()
@@ -82,12 +89,14 @@ class KeyNav(QObject):
             return
         combo.setCurrentIndex((combo.currentIndex() + delta) % combo.count())
 
-    def activate(self) -> None:
-        """Enter: pick a file if none is loaded, otherwise export."""
+    def browse(self) -> None:
+        """⇧Enter: the current tab's file picker — Browse… or Replace…."""
         tab = self._win.tabs.currentWidget()
-        if tab is None:
-            return
-        if not getattr(tab, "_path", ""):
+        if tab is not None:
             tab.drop._browse()
-        elif tab.export_btn.isEnabled():
+
+    def export(self) -> None:
+        """Enter: the current tab's Export button (nothing while it's disabled)."""
+        tab = self._win.tabs.currentWidget()
+        if tab is not None and tab.export_btn.isEnabled():
             tab.export_btn.click()
