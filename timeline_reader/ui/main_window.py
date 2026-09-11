@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -21,6 +22,7 @@ from .assets import icon_path
 from .captions_tab import CaptionsTab
 from .music_tab import MusicTab
 from .report_tab import TimelineReportTab
+from .widgets import HelpBanner
 from .tagfinder_tab import TagFinderTab
 
 
@@ -102,10 +104,47 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tagfinder, "  Tag Finder  ")
         self.tabs.addTab(self.music, "  Music Tracker  ")
         self.tabs.addTab(self.captions, "  SRT Generator  ")
+
+        # A single, subtle "i" button on the tab-bar level toggles the current
+        # tab's help paragraph.
+        self.info_btn = QToolButton()
+        self.info_btn.setObjectName("InfoButton")
+        self.info_btn.setText("i")
+        self.info_btn.setCheckable(True)
+        self.info_btn.setFixedSize(20, 20)
+        self.info_btn.setCursor(Qt.PointingHandCursor)
+        self.info_btn.setToolTip("What does this tab do?")
+        self.info_btn.toggled.connect(self._toggle_help)
+        corner = QWidget()
+        corner_lay = QHBoxLayout(corner)
+        corner_lay.setContentsMargins(0, 0, 12, 0)
+        corner_lay.addWidget(self.info_btn)
+        self.tabs.setCornerWidget(corner, Qt.TopRightCorner)
+        self.tabs.currentChanged.connect(self._sync_info_button)
+
         outer.addWidget(self.tabs, 1)
 
         self.setCentralWidget(root)
         self.statusBar().showMessage("Ready")
+        self._sync_info_button()
+
+    # ---- per-tab help paragraph ------------------------------------------
+    def _current_banner(self) -> HelpBanner | None:
+        page = self.tabs.currentWidget()
+        return page.findChild(HelpBanner) if page else None
+
+    def _toggle_help(self, on: bool):
+        banner = self._current_banner()
+        if banner is not None:
+            banner.set_open(on)
+
+    def _sync_info_button(self, *_):
+        """Reflect the current tab's help state in the shared button."""
+        banner = self._current_banner()
+        self.info_btn.setEnabled(banner is not None)
+        self.info_btn.blockSignals(True)
+        self.info_btn.setChecked(bool(banner and banner.is_open()))
+        self.info_btn.blockSignals(False)
 
     def _top_bar(self):
         bar = QWidget()
