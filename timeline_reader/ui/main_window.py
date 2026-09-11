@@ -116,6 +116,8 @@ class MainWindow(QMainWindow):
         self.info_btn.setToolTip("What does this tab do?")
         self.info_btn.toggled.connect(self._toggle_help)
         corner = QWidget()
+        corner.setObjectName("TabCorner")
+        corner.setAttribute(Qt.WA_StyledBackground, True)
         corner_lay = QHBoxLayout(corner)
         corner_lay.setContentsMargins(0, 0, 12, 0)
         corner_lay.addWidget(self.info_btn)

@@ -1,4 +1,4 @@
 """Timeline Reader — translate Avid Media Composer exports into department reports."""
 
-__version__ = "2.17"
+__version__ = "2.18"
 __app_name__ = "Timeline Reader"

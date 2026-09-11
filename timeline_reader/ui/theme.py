@@ -108,6 +108,8 @@ QMainWindow, #RootView {{ background: {BG_APP}; }}
 /* ---- Page tabs (Resolve-style pill buttons) ---- */
 QTabWidget::pane {{ border: none; background: {BG_APP}; }}
 QTabBar {{ background: {HEADER_BG}; qproperty-drawBase: 0; }}
+/* The tab bar's corner widget (holds the info button) — match the tab band. */
+#TabCorner {{ background: {HEADER_BG}; }}
 QTabBar::tab {{
     background: transparent;
     color: {TEXT_DIM};
