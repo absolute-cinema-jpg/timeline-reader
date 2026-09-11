@@ -106,10 +106,10 @@ QMainWindow, #RootView {{ background: {BG_APP}; }}
 #AppSubtitle {{ color: {TEXT_DIM}; font-size: 12px; }}
 
 /* ---- Page tabs (Resolve-style pill buttons) ---- */
+/* Header colour behind the whole tab row; the pane paints the content on top. */
+QTabWidget {{ background: {HEADER_BG}; }}
 QTabWidget::pane {{ border: none; background: {BG_APP}; }}
 QTabBar {{ background: {HEADER_BG}; qproperty-drawBase: 0; }}
-/* The tab bar's corner widget (holds the info button) — match the tab band. */
-#TabCorner {{ background: {HEADER_BG}; }}
 QTabBar::tab {{
     background: transparent;
     color: {TEXT_DIM};

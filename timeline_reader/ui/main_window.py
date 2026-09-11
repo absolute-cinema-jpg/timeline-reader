@@ -26,6 +26,35 @@ from .widgets import HelpBanner
 from .tagfinder_tab import TagFinderTab
 
 
+class _TabWidget(QTabWidget):
+    """QTabWidget that floats a small button over the right of the tab bar.
+
+    Using the built-in corner widget leaves an unpainted reserved region (a dark
+    box) around the button on macOS; overlaying instead keeps the tab bar's own
+    full-width background unbroken behind it."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._corner_btn: QWidget | None = None
+
+    def set_corner_button(self, btn: QWidget) -> None:
+        self._corner_btn = btn
+        btn.setParent(self)
+        self._place_corner()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_corner()
+
+    def _place_corner(self) -> None:
+        btn = self._corner_btn
+        if btn is None:
+            return
+        bar_h = self.tabBar().height() or self.tabBar().sizeHint().height()
+        btn.move(self.width() - btn.width() - 14, (bar_h - btn.height()) // 2)
+        btn.raise_()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -40,7 +69,7 @@ class MainWindow(QMainWindow):
         outer.setSpacing(0)
         outer.addWidget(self._top_bar())
 
-        self.tabs = QTabWidget()
+        self.tabs = _TabWidget()
         self.tabs.setDocumentMode(True)
 
         self.opticals = TimelineReportTab(
@@ -115,13 +144,7 @@ class MainWindow(QMainWindow):
         self.info_btn.setCursor(Qt.PointingHandCursor)
         self.info_btn.setToolTip("What does this tab do?")
         self.info_btn.toggled.connect(self._toggle_help)
-        corner = QWidget()
-        corner.setObjectName("TabCorner")
-        corner.setAttribute(Qt.WA_StyledBackground, True)
-        corner_lay = QHBoxLayout(corner)
-        corner_lay.setContentsMargins(0, 0, 12, 0)
-        corner_lay.addWidget(self.info_btn)
-        self.tabs.setCornerWidget(corner, Qt.TopRightCorner)
+        self.tabs.set_corner_button(self.info_btn)
         self.tabs.currentChanged.connect(self._sync_info_button)
 
         outer.addWidget(self.tabs, 1)
