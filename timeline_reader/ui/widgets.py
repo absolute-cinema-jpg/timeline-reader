@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QTableView,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -444,11 +445,42 @@ def section_label(text: str) -> QLabel:
     return lbl
 
 
-def help_banner(text: str) -> QLabel:
-    """A short how-to-use paragraph shown at the top of a tab. Accepts simple
-    rich text (e.g. <b>…</b>) so key gotchas can be emphasised."""
-    lbl = QLabel(text)
-    lbl.setObjectName("TabHelp")
-    lbl.setTextFormat(Qt.RichText)
-    lbl.setWordWrap(True)
-    return lbl
+class HelpBanner(QWidget):
+    """A short how-to-use paragraph for a tab, hidden until the user clicks the
+    small circular "i" button. The text accepts simple rich text (e.g. <b>…</b>)
+    so key gotchas can be emphasised."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.addStretch(1)
+        self.button = QToolButton()
+        self.button.setObjectName("InfoButton")
+        self.button.setText("i")
+        self.button.setCheckable(True)
+        self.button.setFixedSize(20, 20)
+        self.button.setCursor(Qt.PointingHandCursor)
+        self.button.setToolTip("What does this tab do?")
+        self.button.toggled.connect(self._toggle)
+        btn_row.addWidget(self.button)
+        lay.addLayout(btn_row)
+
+        self.label = QLabel(text)
+        self.label.setObjectName("TabHelp")
+        self.label.setTextFormat(Qt.RichText)
+        self.label.setWordWrap(True)
+        self.label.hide()
+        lay.addWidget(self.label)
+
+    def _toggle(self, on: bool):
+        self.label.setVisible(on)
+
+
+def help_banner(text: str) -> QWidget:
+    """A collapsed how-to-use paragraph revealed by a subtle "i" button."""
+    return HelpBanner(text)

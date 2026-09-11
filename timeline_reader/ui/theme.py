@@ -138,6 +138,13 @@ QTabBar::tab:selected {{
     border: 1px solid {BORDER}; border-left: 3px solid {ACCENT};
     border-radius: 6px; padding: 10px 12px; font-size: 12px;
 }}
+QToolButton#InfoButton {{
+    color: {TEXT_DIM}; background: transparent;
+    border: 1px solid {BORDER_HI}; border-radius: 10px;
+    font-size: 12px; font-style: italic; font-weight: 600; padding: 0;
+}}
+QToolButton#InfoButton:hover {{ color: {TEXT}; border-color: {TEXT_DIM}; }}
+QToolButton#InfoButton:checked {{ color: {ACCENT}; border-color: {ACCENT}; }}
 #StatBig {{ color: {TEXT_BRIGHT}; font-size: 22px; font-weight: 600; }}
 #StatLabel {{ color: {TEXT_DIM}; font-size: 11px; letter-spacing: 0.5px; }}
 #WarnLabel {{ color: {AMBER}; font-size: 12px; }}
