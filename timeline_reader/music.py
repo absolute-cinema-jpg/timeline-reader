@@ -148,8 +148,22 @@ def _meta_of(clip: Clip, keys) -> str:
 
 
 def _identity(clip: Clip) -> str:
-    """What makes two segments "the same piece of music" — the source name."""
-    return clip.clip_name or clip.tape_name or ""
+    """What makes two segments "the same piece of music" — the master clip name.
+
+    Not the deepest source name: the mob chain frequently bottoms out in a name
+    shared by many unrelated clips (a tape roll, or Avid's "Signature Source Mob"
+    for rendered / consolidated / mixdown audio). Using that would fuse two
+    different songs cut back to back into one cue, and the second would vanish."""
+    return clip.master_name or clip.clip_name or clip.tape_name or ""
+
+
+def _filename(clip: Clip) -> str:
+    """The media file name: the first name in the chain that looks like a file
+    (has an extension), else the master clip name."""
+    for name in (clip.tape_name, clip.master_name, clip.clip_name):
+        if name and "." in name:
+            return name
+    return clip.master_name or clip.tape_name or clip.clip_name
 
 
 def _track_index(name: str) -> int:
@@ -225,7 +239,7 @@ def build_cues(
                 title=_meta_of(clip, _TITLE_KEYS) or ident,
                 album=_meta_of(clip, _ALBUM_KEYS),
                 artist=_meta_of(clip, _ARTIST_KEYS),
-                filename=clip.tape_name or clip.clip_name,
+                filename=_filename(clip),
                 tracks=[clip.track],
                 rec_in=tl.start_tc + s_in,
                 rec_out=tl.start_tc + s_out,

@@ -395,6 +395,12 @@ def _resolve_source(
         mob_type = getattr(m, "mob_type", None)
         if not clip.clip_name and name and mob_type == "CompositionMob":
             clip.clip_name = name
+        if not clip.master_name and name and mob_type == "MasterMob":
+            # The master clip as named in the bin. Unlike ``tape_name`` this is
+            # unique per clip: the chain below it often ends in a name shared by
+            # many clips (a tape roll, or Avid's generic "Signature Source Mob"
+            # for rendered / consolidated audio).
+            clip.master_name = name
         if mob_type in ("SourceMob", "MasterMob") and name:
             clip.tape_name = name  # last one wins -> physical tape / file
         _apply_mob(m, clip, memo)  # bin metadata + master-clip locators

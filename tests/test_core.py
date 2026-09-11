@@ -679,6 +679,31 @@ def test_music_dissolve_inclusion():
     assert (excl.rec_in, excl.rec_out) == (125, 200)   # trimmed to hard cuts
 
 
+def test_music_back_to_back_songs_sharing_a_source_name_stay_separate():
+    """Regression: two different songs cut back to back must be two cues even
+    when their mob chains bottom out in the same shared source name.
+
+    Rendered / consolidated / mixdown audio all end in Avid's generic
+    "Signature Source Mob" (dialogue ends in a shared tape roll). Keying the cue
+    identity on that fused the songs into one cue and the second disappeared;
+    identity now comes from the master clip name."""
+    from timeline_reader import music
+    shared = "Signature Source Mob"
+    a = Clip(index=0, track="A15", master_name="Song One", clip_name=shared,
+             tape_name=shared, rec_start=0, rec_end=100, fps=25.0)
+    b = Clip(index=0, track="A15", master_name="Song Two", clip_name=shared,
+             tape_name=shared, rec_start=100, rec_end=200, fps=25.0)  # next frame
+    cues = music.build_cues(_music_timeline([a, b]), {"A15"})
+    assert [c.song for c in cues] == ["Song One", "Song Two"]
+    assert [(c.rec_in, c.rec_out) for c in cues] == [(0, 100), (100, 200)]
+    # Filename falls back to the master name rather than the meaningless shared one.
+    assert cues[0].filename == "Song One"
+    # …but a real file name lower in the chain is still preferred when present.
+    c = Clip(index=0, track="A15", master_name="Kashmiri", clip_name="Kashmiri",
+             tape_name="01-Kashmiri.wav", rec_start=300, rec_end=400, fps=25.0)
+    assert music.build_cues(_music_timeline([c]), {"A15"})[0].filename == "01-Kashmiri.wav"
+
+
 def test_mob_contribution_memo_matches_direct_walk():
     """Replaying a mob's memoised contribution gives exactly what walking it
     directly writes: nearest-wins metadata, appended locator comments, and the

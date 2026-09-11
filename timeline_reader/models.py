@@ -51,6 +51,7 @@ class Clip:
     track: str                       # "V1", "V2", ...
     clip_name: str = ""              # editor-facing name (FROM CLIP NAME)
     tape_name: str = ""              # source tape / camera roll / file
+    master_name: str = ""            # master clip name (the song, for music cues)
     note: str = ""                   # timeline clip note (segment _COMMENT)
     src_start: int = 0               # source in, frames
     src_end: int = 0                 # source out (exclusive), frames
