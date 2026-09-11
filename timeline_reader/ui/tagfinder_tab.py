@@ -14,7 +14,13 @@ an empty search still shows every tagged clip as a browse aid.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+)
 
 from ..columns import TAGFINDER_REPORT
 from ..rowset import RowSet
@@ -36,13 +42,14 @@ class TagFinderTab(TimelineReportTab):
 
     # ---- search -----------------------------------------------------------
     def _toolbar(self):
-        """Base toolbar (sequence picker, columns, clear/reset) with the tag
-        search box prepended so it sits directly above the table."""
-        bar = super()._toolbar()
+        """A dedicated search row above the base toolbar (sequence picker,
+        columns, clear/reset). Keeping the tag field, exact-match toggle and the
+        base controls on separate lines stops them crowding — and overlapping —
+        each other when the window is narrow."""
         self._search = QLineEdit()
         self._search.setPlaceholderText('Type a clip note to find, e.g. "stock"')
         self._search.setClearButtonEnabled(True)
-        self._search.setMinimumWidth(300)
+        self._search.setMinimumWidth(220)
         self._search.textChanged.connect(self._on_search_changed)
         self._exact = QCheckBox("Exact text matching")
         self._exact.setToolTip(
@@ -50,10 +57,18 @@ class TagFinderTab(TimelineReportTab):
             "\"stock footage\").\nOn: keep only notes that are exactly the tag."
         )
         self._exact.toggled.connect(self._on_search_changed)
-        bar.insertWidget(0, self._exact)
-        bar.insertWidget(0, self._search)
-        bar.insertWidget(0, QLabel("Tag:"))
-        return bar
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        search_row.addWidget(QLabel("Tag:"))
+        search_row.addWidget(self._search, 1)  # the field takes the spare width
+        search_row.addWidget(self._exact)
+
+        container = QVBoxLayout()
+        container.setSpacing(10)
+        container.addLayout(search_row)
+        container.addLayout(super()._toolbar())
+        return container
 
     def _compute_contexts(self) -> list:
         """Tagged clips, narrowed to the ones whose note matches the search term
