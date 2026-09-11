@@ -12,6 +12,7 @@ the tape is the physical SourceMob.
 
 from __future__ import annotations
 
+import contextlib
 import os
 
 from ..effects import classify
@@ -28,57 +29,98 @@ except Exception as exc:  # pragma: no cover
     _IMPORT_ERROR = exc
 
 
-def parse(path: str, key: int | None = None) -> Timeline:
+@contextlib.contextmanager
+def open_bin(path: str):
+    """Open a bin for reading with pyavb's object cache pinned.
+
+    pyavb reads objects lazily and keeps them in a ``WeakValueDictionary``, so
+    anything we don't hold a reference to is dropped as soon as we move on and
+    re-read (and re-decoded) from disk the next time a reference resolves to it.
+    A master mob shared by fifty segments gets read fifty times. Swapping in a
+    plain dict for the life of the ``with`` block makes every object a one-time
+    read; the whole cache is released when the bin is closed.
+    """
     if avb is None:  # pragma: no cover
         raise ParseError(f"pyavb is not available: {_IMPORT_ERROR}")
-
     with avb.open(path) as f:
-        candidates = _master_compositions(f.content.mobs)
-        if not candidates:
-            raise ParseError("No editable sequence with picture tracks found in bin.")
-        options = [
-            SequenceOption(key=i, name=_seq_name(m), detail=_seq_detail(m))
-            for i, m in enumerate(candidates)
-        ]
-        if key is None or not (0 <= key < len(candidates)):
-            key = 0
-        comp = candidates[key]
+        f.object_cache = {}
+        yield f
 
-        fps, drop = _sequence_rate(comp)
-        tl = Timeline(
-            name=getattr(comp, "name", None) or os.path.basename(path),
-            fps=fps,
-            drop=drop,
-            source_path=path,
-            source_format="Avid Bin",
-            available_sequences=options,
-            sequence_key=key,
-        )
 
-        tl.start_tc = _read_start_tc(comp, fps)
+def candidates(f) -> list:
+    """The bin's selectable sequences, computed once per open file.
 
-        picture_tracks = [
-            t for t in comp.tracks if getattr(t, "media_kind", None) == "picture"
-        ]
-        picture_tracks.sort(key=lambda t: getattr(t, "index", 0))
+    Enumerating candidates touches every mob in the bin, so the timeline parse
+    and the caption parse that share one open file share this list too.
+    """
+    cached = getattr(f, "_tr_candidates", None)
+    if cached is None:
+        cached = f._tr_candidates = _master_compositions(f.content.mobs)
+    return cached
 
-        for tr in picture_tracks:
-            track_name = f"V{getattr(tr, 'index', '?')}"
-            seq = tr.component
-            if not isinstance(seq, Sequence):
-                continue
-            _walk_track(seq, track_name, fps, drop, tl)
-            _collect_track_markers(seq, track_name, tl)
 
-        sound_tracks = [
-            t for t in comp.tracks if getattr(t, "media_kind", None) == "sound"
-        ]
-        sound_tracks.sort(key=lambda t: getattr(t, "index", 0))
-        for tr in sound_tracks:
-            track_name = f"A{getattr(tr, 'index', '?')}"
-            seq = _inner_sequence(tr.component)
-            if seq is not None:
-                _walk_audio_track(seq, track_name, fps, drop, tl, _track_muted(tr))
+def sequence_options(f) -> list[SequenceOption]:
+    return [
+        SequenceOption(key=i, name=_seq_name(m), detail=_seq_detail(m))
+        for i, m in enumerate(candidates(f))
+    ]
+
+
+def parse(path: str, key: int | None = None) -> Timeline:
+    with open_bin(path) as f:
+        return parse_open(f, path, key)
+
+
+def parse_open(f, path: str, key: int | None = None) -> Timeline:
+    """Parse one sequence from an already-open bin (see :func:`open_bin`)."""
+    cands = candidates(f)
+    if not cands:
+        raise ParseError("No editable sequence with picture tracks found in bin.")
+    options = sequence_options(f)
+    if key is None or not (0 <= key < len(cands)):
+        key = 0
+    comp = cands[key]
+
+    fps, drop = _sequence_rate(comp)
+    tl = Timeline(
+        name=getattr(comp, "name", None) or os.path.basename(path),
+        fps=fps,
+        drop=drop,
+        source_path=path,
+        source_format="Avid Bin",
+        available_sequences=options,
+        sequence_key=key,
+    )
+
+    tl.start_tc = _read_start_tc(comp, fps)
+
+    # Per-parse memo of what each referenced mob contributes to a clip (bin
+    # metadata, master-clip locators), so a mob shared by many segments is
+    # scanned once. See _mob_contribution.
+    memo: dict[int, tuple[object, list[tuple[str, str]], str]] = {}
+
+    picture_tracks = [
+        t for t in comp.tracks if getattr(t, "media_kind", None) == "picture"
+    ]
+    picture_tracks.sort(key=lambda t: getattr(t, "index", 0))
+
+    for tr in picture_tracks:
+        track_name = f"V{getattr(tr, 'index', '?')}"
+        seq = tr.component
+        if not isinstance(seq, Sequence):
+            continue
+        _walk_track(seq, track_name, fps, drop, tl, memo)
+        _collect_track_markers(seq, track_name, tl)
+
+    sound_tracks = [
+        t for t in comp.tracks if getattr(t, "media_kind", None) == "sound"
+    ]
+    sound_tracks.sort(key=lambda t: getattr(t, "index", 0))
+    for tr in sound_tracks:
+        track_name = f"A{getattr(tr, 'index', '?')}"
+        seq = _inner_sequence(tr.component)
+        if seq is not None:
+            _walk_audio_track(seq, track_name, fps, drop, tl, _track_muted(tr), memo)
 
     if not tl.clips:
         tl.warnings.append("Sequence parsed but no clips were found on picture tracks.")
@@ -90,7 +132,10 @@ def parse(path: str, key: int | None = None) -> Timeline:
 # --------------------------------------------------------------------------- #
 # Timeline walking
 # --------------------------------------------------------------------------- #
-def _walk_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> None:
+def _walk_track(
+    seq, track_name: str, fps: float, drop: bool, tl: Timeline, memo: dict | None = None
+) -> None:
+    memo = {} if memo is None else memo
     pos = 0
     for comp in seq.components:
         length = int(getattr(comp, "length", 0) or 0)
@@ -125,7 +170,7 @@ def _walk_track(seq, track_name: str, fps: float, drop: bool, tl: Timeline) -> N
         _collect_markers(comp, clip)  # sequence-level locators within this segment
         _collect_note(comp, clip)     # timeline clip note (segment comment)
         if src is not None:
-            _resolve_source(src, clip)  # sets src_start, needed for keyframe timecodes
+            _resolve_source(src, clip, memo=memo)  # sets src_start, needed for keyframe timecodes
 
         # Effects are collected after the source is resolved so each keyframe's
         # time can be reported as the clip's *source* timecode.
@@ -177,7 +222,8 @@ def _track_muted(tr) -> bool:
 
 
 def _walk_audio_track(
-    seq, track_name: str, fps: float, drop: bool, tl: Timeline, muted: bool = False
+    seq, track_name: str, fps: float, drop: bool, tl: Timeline, muted: bool = False,
+    memo: dict | None = None,
 ) -> None:
     """Walk one sound track in record order, appending a :class:`Clip` per audio
     segment to ``tl.audio_clips`` (kept apart from picture ``clips`` so the other
@@ -190,6 +236,7 @@ def _walk_audio_track(
     can optionally include those fades in a cue's in/out. Audio clips sit inside a
     ``PanVolumeEffect`` wrapper; ``_first_source_clip`` descends into it.
     """
+    memo = {} if memo is None else memo
     pos = 0
     pending_head = 0
     last: Clip | None = None
@@ -224,7 +271,7 @@ def _walk_audio_track(
             head_transition=pending_head,
             muted=muted,
         )
-        _resolve_source(src, clip, media_kind="sound")
+        _resolve_source(src, clip, media_kind="sound", memo=memo)
         tl.audio_clips.append(clip)
         last = clip
         pending_head = 0
@@ -307,7 +354,10 @@ def _record_effect(node, effects: list[Effect], src_start: int, fps: float, drop
 # --------------------------------------------------------------------------- #
 # Source-clip resolution (name / tape / source timecode)
 # --------------------------------------------------------------------------- #
-def _resolve_source(src, clip: Clip, media_kind: str = "picture") -> None:
+def _resolve_source(
+    src, clip: Clip, media_kind: str = "picture", memo: dict | None = None
+) -> None:
+    memo = {} if memo is None else memo
     cur = src
     offset = 0
     guard = 0
@@ -323,9 +373,7 @@ def _resolve_source(src, clip: Clip, media_kind: str = "picture") -> None:
             clip.clip_name = name
         if mob_type in ("SourceMob", "MasterMob") and name:
             clip.tape_name = name  # last one wins -> physical tape / file
-        _collect_metadata(m, clip)
-        for tr in getattr(m, "tracks", []):
-            _collect_markers(getattr(tr, "component", None), clip)  # master-clip locators
+        _apply_mob(m, clip, memo)  # bin metadata + master-clip locators
         cur = _next_in_chain(m, cur.track_id, media_kind)
 
     # Source duration comes from the source clip itself, not the record length:
@@ -337,6 +385,45 @@ def _resolve_source(src, clip: Clip, media_kind: str = "picture") -> None:
     clip.src_end = offset + src_len
     if not clip.clip_name:
         clip.clip_name = clip.tape_name or "(unnamed)"
+
+
+def _mob_contribution(mob, memo: dict) -> tuple[list[tuple[str, str]], str]:
+    """What a referenced mob adds to any clip that resolves through it.
+
+    A master mob is typically referenced by many segments (every cut of a take,
+    every piece of a song), and its bin metadata and locators are the same for
+    each of them, so they are read once per parse and replayed per clip. The
+    contribution is exactly what :func:`_collect_metadata` and
+    :func:`_collect_markers` would write into an empty clip: the ordered
+    ``(key, value)`` metadata pairs, and the joined locator comments.
+    """
+    hit = memo.get(id(mob))
+    if hit is not None:
+        return hit[1:]
+    scratch = Clip(index=0, track="")
+    _collect_metadata(mob, scratch)
+    pairs = list(scratch.meta.items())
+    scratch = Clip(index=0, track="")
+    for tr in getattr(mob, "tracks", []):
+        _collect_markers(getattr(tr, "component", None), scratch)  # master-clip locators
+    # The entry keeps the mob alive so its id can't be recycled onto another
+    # object while the memo is in use.
+    markers = scratch.meta.get("Markers", "")
+    memo[id(mob)] = (mob, pairs, markers)
+    return pairs, markers
+
+
+def _apply_mob(mob, clip: Clip, memo: dict) -> None:
+    """Merge a mob's contribution into ``clip`` with the same nearest-wins rule
+    as walking it directly: a key already set by a nearer mob is kept, and
+    locator comments are appended in chain order."""
+    pairs, markers = _mob_contribution(mob, memo)
+    for key, val in pairs:
+        if not clip.meta.get(key):
+            clip.meta[key] = val
+    if markers:
+        existing = clip.meta.get("Markers", "")
+        clip.meta["Markers"] = f"{existing}; {markers}" if existing else markers
 
 
 # Non-user attributes worth surfacing as columns, mapped to friendly labels.
@@ -696,9 +783,5 @@ def sequences(path: str) -> list[SequenceOption]:
     """Enumerate selectable sequences in a bin (for the sequence picker)."""
     if avb is None:  # pragma: no cover
         return []
-    with avb.open(path) as f:
-        cands = _master_compositions(f.content.mobs)
-        return [
-            SequenceOption(key=i, name=_seq_name(m), detail=_seq_detail(m))
-            for i, m in enumerate(cands)
-        ]
+    with open_bin(path) as f:
+        return sequence_options(f)

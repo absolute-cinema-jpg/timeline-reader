@@ -615,6 +615,138 @@ def test_music_dissolve_inclusion():
     assert (excl.rec_in, excl.rec_out) == (125, 200)   # trimmed to hard cuts
 
 
+def test_mob_contribution_memo_matches_direct_walk():
+    """Replaying a mob's memoised contribution gives exactly what walking it
+    directly writes: nearest-wins metadata, appended locator comments, and the
+    same ``meta`` key order (which decides the discovered column order)."""
+    from timeline_reader.parsers import avb_parser as A
+
+    class Node:
+        property_data: dict = {}
+
+        def __init__(self, attributes):
+            self.attributes = attributes
+
+    class Track:
+        def __init__(self, component):
+            self.component = component
+
+    class Mob:
+        def __init__(self, attributes, tracks):
+            self.attributes = attributes
+            self.tracks = tracks
+
+    import avb.misc
+
+    class FakeMarker(avb.misc.Marker):  # _collect_markers matches on the real class
+        __slots__ = ("_attrs",)
+
+        def __init__(self, comment):
+            self._attrs = {"_ATN_CRM_COM": comment}
+
+        @property
+        def attributes(self):
+            return self._attrs
+
+        @property
+        def comp_offset(self):
+            return 0
+
+    subclip = Mob({"_USER": {"Scene": "12", "Take": " ", "Comment": "sub"}}, [])
+    master = Mob(
+        {"_USER": {"Scene": "99", "Take": "3", "Circled": "Y"}, "_PJ": "THR"},
+        [Track(Node({"loc": None}))],
+    )
+
+    def direct():
+        clip = Clip(index=0, track="V1")
+        for m in (subclip, master):
+            A._collect_metadata(m, clip)
+            for tr in m.tracks:
+                A._collect_markers(tr.component, clip)
+        return clip
+
+    def memoised(memo):
+        clip = Clip(index=0, track="V1")
+        for m in (subclip, master):
+            A._apply_mob(m, clip, memo)
+        return clip
+
+    memo: dict = {}
+    first, second = memoised(memo), memoised(memo)  # second run hits the memo
+    expect = direct()
+    assert list(first.meta.items()) == list(expect.meta.items())
+    assert list(second.meta.items()) == list(expect.meta.items())
+    assert expect.meta["Scene"] == "12"      # nearest (subclip) wins
+    assert expect.meta["Take"] == "3"        # subclip's blank falls through
+    assert expect.meta["Project"] == "THR"
+    assert len(memo) == 2
+
+    # Locator comments append in chain order, on top of any existing value.
+    tagged = Mob({}, [Track(Node({"loc": FakeMarker("sync")}))])
+    clip_a, clip_b = Clip(index=0, track="V1"), Clip(index=0, track="V1")
+    clip_a.meta["Markers"] = clip_b.meta["Markers"] = "head"
+    A._apply_mob(tagged, clip_a, {})
+    A._collect_markers(tagged.tracks[0].component, clip_b)
+    assert clip_a.meta["Markers"] == clip_b.meta["Markers"] == "head; sync"
+
+
+def test_loader_parses_once_for_concurrent_tabs():
+    """Five tabs asking for the same file at once cost one parse, a repeat is a
+    cache hit, and a re-saved file (new mtime) is read again."""
+    import threading
+    import time
+    from timeline_reader import loader
+    from timeline_reader.parsers import avb_parser as A
+
+    calls: list[str] = []
+    fake_tl = Timeline(name="stub", source_format="Avid Bin")
+
+    def fake_parse_open(f, path, key=None):
+        calls.append(path)
+        time.sleep(0.05)  # long enough for the other threads to queue up
+        return fake_tl
+
+    class FakeFile:
+        pass
+
+    import contextlib
+    orig = (A.open_bin, A.parse_open)
+    A.open_bin = contextlib.contextmanager(lambda path: iter([FakeFile()]))
+    A.parse_open = fake_parse_open
+    import timeline_reader.captions_avb as C
+    orig_cap = C.parse_captions_open
+    C.parse_captions_open = lambda f, path, key=None: "captions"
+    try:
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "seq.avb")
+        with open(path, "wb") as fh:
+            fh.write(b"x")
+        loader.clear()
+        results: list = []
+        threads = [
+            threading.Thread(target=lambda: results.append(loader.load_timeline(path)))
+            for _ in range(4)
+        ]
+        threads.append(threading.Thread(target=lambda: results.append(loader.load_captions(path))))
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert calls == [path]                      # one walk of the bin
+        assert results.count(fake_tl) == 4 and "captions" in results
+        assert loader.load_timeline(path) is fake_tl  # shared, cached object
+        assert calls == [path]
+
+        os.utime(path, (1, 1))                      # "re-saved" in Media Composer
+        assert loader.load_timeline(path) is fake_tl
+        assert calls == [path, path]
+    finally:
+        A.open_bin, A.parse_open = orig
+        C.parse_captions_open = orig_cap
+        loader.clear()
+
+
 def test_music_from_sample_bin():
     """End-to-end against the real sample bin's music tracks (A15/A16), if present."""
     path = os.path.join(

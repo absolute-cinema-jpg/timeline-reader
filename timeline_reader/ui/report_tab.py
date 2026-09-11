@@ -39,7 +39,8 @@ from ..exporters import (
     write_avid_markers,
 )
 from ..models import Timeline
-from ..parsers import ParseError, parse_timeline
+from ..loader import load_timeline
+from ..parsers import ParseError
 from ..rowset import RowSet
 from ..timecode import frames_to_duration
 from .column_dialog import ColumnDialog
@@ -49,6 +50,10 @@ TIMELINE_EXTS = [".avb", ".edl", ".aaf", ".txt", ".tsv", ".tab"]
 
 
 class _ParseWorker(QThread):
+    """Parse off the UI thread. Every timeline tab loads the same file at once,
+    so this goes through the shared loader: one tab's worker does the parse and
+    the rest pick up the cached result (see :mod:`timeline_reader.loader`)."""
+
     done = Signal(object)
     failed = Signal(str)
 
@@ -59,7 +64,7 @@ class _ParseWorker(QThread):
 
     def run(self):
         try:
-            tl = parse_timeline(self._path, self._key)
+            tl = load_timeline(self._path, self._key)
             self.done.emit(tl)
         except ParseError as exc:
             self.failed.emit(str(exc))

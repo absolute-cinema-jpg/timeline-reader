@@ -199,8 +199,10 @@ timeline_reader/
   effects.py          effect classification + opticals rules
   captions.py         DS Caption (.txt) -> SRT
   music.py            sound segments -> merged music cues
+  loader.py           one cached parse per file, shared by every tab
   reports.py          Timeline -> table rows (opticals, clip list)
   exporters.py        CSV / TSV / XLSX / ODS / text writers
+  captions_avb.py     SubCap subtitles read from the bin
   parsers/
     avb_parser.py     Avid bin  (pyavb)   — full effect data
     edl_parser.py     CMX3600 EDL

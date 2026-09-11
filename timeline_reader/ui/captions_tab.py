@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
@@ -28,8 +28,8 @@ from PySide6.QtWidgets import (
 
 from .. import settings
 from ..captions import CaptionDoc, parse_caption_file, to_srt
-from ..captions_avb import parse_captions
 from ..exporters import write_text
+from ..loader import load_captions
 from ..parsers import ParseError
 from .widgets import DropZone, make_card, section_label
 
@@ -50,6 +50,28 @@ _FPS_CHOICES = [
 ]
 
 
+class _CaptionWorker(QThread):
+    """Read a bin's subtitles off the UI thread. The bin is the same file the
+    other tabs are loading at the same moment, so this goes through the shared
+    loader and normally just picks up the parse another tab's worker did."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, path: str, key: int | None = None):
+        super().__init__()
+        self._path = path
+        self._key = key
+
+    def run(self):
+        try:
+            self.done.emit(load_captions(self._path, self._key))
+        except ParseError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"Unexpected error: {exc}")
+
+
 def _fps_preset_index(fps: float, drop: bool) -> int | None:
     """The frame-rate combo index matching a detected sequence rate, if any."""
     for i, (_, f, d) in enumerate(_FPS_CHOICES):
@@ -68,6 +90,7 @@ class CaptionsTab(QWidget):
         self._srt = ""
         self._seq_key: int | None = None      # chosen sequence within a bin
         self._loading = False                  # replacing the preview programmatically
+        self._worker: _CaptionWorker | None = None
         self._suppress_switch = False          # populating the sequence combo
         self._build()
 
@@ -205,17 +228,23 @@ class CaptionsTab(QWidget):
         if not self._path:
             return
         ext = os.path.splitext(self._path)[1].lower()
+        if ext == BIN_EXT:
+            # A bin is read on a worker, like the other timeline tabs.
+            self.status.emit(f"Reading {os.path.basename(self._path)}…")
+            QGuiApplication.setOverrideCursor(Qt.BusyCursor)
+            self._worker = _CaptionWorker(self._path, self._seq_key)
+            self._worker.done.connect(self._on_doc)
+            self._worker.failed.connect(self._on_failed)
+            self._worker.finished.connect(lambda: QGuiApplication.restoreOverrideCursor())
+            self._worker.start()
+            return
+        if ext != ".txt":
+            self._unsupported(ext)
+            return
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
         try:
-            if ext == BIN_EXT:
-                self._doc = parse_captions(self._path, key=self._seq_key)
-            elif ext == ".txt":
-                fps, drop = self._fps_drop()
-                self._doc = parse_caption_file(self._path, fps=fps, drop=drop)
-            else:
-                self._unsupported(ext)
-                return
-            self._srt = to_srt(self._doc)
+            fps, drop = self._fps_drop()
+            doc = parse_caption_file(self._path, fps=fps, drop=drop)
         except (ParseError, OSError, ValueError) as exc:
             self._on_failed(str(exc))
             return
@@ -224,6 +253,11 @@ class CaptionsTab(QWidget):
             return
         finally:
             QGuiApplication.restoreOverrideCursor()
+        self._on_doc(doc)
+
+    def _on_doc(self, doc: CaptionDoc):
+        self._doc = doc
+        self._srt = to_srt(doc)
         self._show_doc()
 
     def _show_doc(self):

@@ -17,11 +17,11 @@ from .captions import CaptionDoc, Cue
 from .models import SequenceOption
 from .parsers import ParseError
 from .parsers.avb_parser import (
-    _master_compositions,
     _read_start_tc,
     _sequence_rate,
-    _seq_detail,
-    _seq_name,
+    candidates,
+    open_bin,
+    sequence_options,
 )
 
 try:
@@ -41,45 +41,41 @@ def caption_sequences(path: str) -> list[SequenceOption]:
     """Enumerate the bin's selectable sequences (same ordering as the other tabs)."""
     if avb is None:  # pragma: no cover
         return []
-    with avb.open(path) as f:
-        cands = _master_compositions(f.content.mobs)
-        return [
-            SequenceOption(key=i, name=_seq_name(m), detail=_seq_detail(m))
-            for i, m in enumerate(cands)
-        ]
+    with open_bin(path) as f:
+        return sequence_options(f)
 
 
 def parse_captions(path: str, key: int | None = None) -> CaptionDoc:
     """Build a :class:`CaptionDoc` from the SubCap subtitles on one sequence."""
-    if avb is None:  # pragma: no cover
-        raise ParseError(f"pyavb is not available: {_IMPORT_ERROR}")
+    with open_bin(path) as f:
+        return parse_captions_open(f, path, key)
 
-    with avb.open(path) as f:
-        cands = _master_compositions(f.content.mobs)
-        if not cands:
-            raise ParseError("No editable sequence with picture tracks found in bin.")
-        if key is None or not (0 <= key < len(cands)):
-            key = 0
-        comp = cands[key]
 
-        fps, drop = _sequence_rate(comp)
-        start = _read_start_tc(comp, fps)
-        doc = CaptionDoc(fps=fps, drop=drop, source_path=path)
-        doc.available_sequences = [
-            SequenceOption(key=i, name=_seq_name(m), detail=_seq_detail(m))
-            for i, m in enumerate(cands)
-        ]
-        doc.sequence_key = key
-        doc.sequence_name = getattr(comp, "name", "") or ""
+def parse_captions_open(f, path: str, key: int | None = None) -> CaptionDoc:
+    """Caption parse over an already-open bin, so the timeline parse and this
+    one can share a single open (see :mod:`timeline_reader.loader`)."""
+    cands = candidates(f)
+    if not cands:
+        raise ParseError("No editable sequence with picture tracks found in bin.")
+    if key is None or not (0 <= key < len(cands)):
+        key = 0
+    comp = cands[key]
 
-        found: list[tuple[int, int, str]] = []
-        for tr in comp.tracks:
-            if getattr(tr, "media_kind", None) != "picture":
-                continue
-            seq = tr.component
-            if not isinstance(seq, Sequence):
-                continue
-            _walk_track(seq, found)
+    fps, drop = _sequence_rate(comp)
+    start = _read_start_tc(comp, fps)
+    doc = CaptionDoc(fps=fps, drop=drop, source_path=path)
+    doc.available_sequences = sequence_options(f)
+    doc.sequence_key = key
+    doc.sequence_name = getattr(comp, "name", "") or ""
+
+    found: list[tuple[int, int, str]] = []
+    for tr in comp.tracks:
+        if getattr(tr, "media_kind", None) != "picture":
+            continue
+        seq = tr.component
+        if not isinstance(seq, Sequence):
+            continue
+        _walk_track(seq, found)
 
     # Record order; a stable second key keeps identically-timed cues deterministic.
     found.sort(key=lambda c: (c[0], c[1]))
