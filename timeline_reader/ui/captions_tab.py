@@ -73,10 +73,22 @@ class _CaptionWorker(QThread):
 
 
 def _fps_preset_index(fps: float, drop: bool) -> int | None:
-    """The frame-rate combo index matching a detected sequence rate, if any."""
+    """The frame-rate combo index closest to a detected sequence rate, if any.
+
+    Matches on the actual rate, not a rounded one, so 23.976 and 24 (and 29.97
+    vs 30, 59.94 vs 60) stay distinct — rounding would collapse them and, since
+    23.976 is listed first, silently mislabel every 24 fps sequence as 23.976.
+    """
+    best_i, best_diff = None, None
     for i, (_, f, d) in enumerate(_FPS_CHOICES):
-        if round(f) == round(fps) and d == drop:
-            return i
+        if d != drop:
+            continue
+        diff = abs(f - fps)
+        if best_diff is None or diff < best_diff:
+            best_i, best_diff = i, diff
+    # Only accept a genuinely close match (within half a frame per second).
+    if best_i is not None and best_diff <= 0.5:
+        return best_i
     return None
 
 
@@ -165,8 +177,9 @@ class CaptionsTab(QWidget):
         lay.addLayout(row)
 
         self.fps_hint = QLabel(
-            "Frame rate maps timecodes to SRT milliseconds. A bin sets this "
-            "automatically from the sequence; it's editable only for DS Caption .txt."
+            "Frame rate maps timecodes to SRT milliseconds. A bin sets this from "
+            "the sequence, but you can override it — e.g. 24 vs 23.976, which Avid "
+            "stores identically."
         )
         self.fps_hint.setObjectName("Hint")
         self.fps_hint.setWordWrap(True)
@@ -212,10 +225,22 @@ class CaptionsTab(QWidget):
         self._reconvert()
 
     def _on_fps_changed(self, index: int):
-        # Persist the choice; only a .txt caption source re-parses on rate change
-        # (a bin's rate is authoritative and the control is disabled for it).
+        # Ignore the programmatic set that syncs the combo to a detected rate.
+        if self._suppress_switch:
+            return
         settings.set_caption_fps_index(index)
-        if self._path and not self._is_bin():
+        if not self._path:
+            return
+        if self._is_bin():
+            # A bin's cues are already parsed as frames; overriding the rate just
+            # re-interprets those frames as milliseconds (24 vs 23.976), no reparse.
+            if self._doc is not None:
+                fps, drop = self._fps_drop()
+                self._doc.fps, self._doc.drop = fps, drop
+                self._srt = to_srt(self._doc)
+                self._set_preview(self._srt)
+                self._refresh_labels()
+        else:
             self._reconvert()
 
     def _switch_sequence(self, index: int):
@@ -266,7 +291,16 @@ class CaptionsTab(QWidget):
         self._set_preview(self._srt)
         self._sync_fps_control(doc)
         self._populate_sequences(doc)
+        self._refresh_labels()
+        self.status.emit(f"Read {n} subtitles" if self._is_bin() else f"Converted {n} caption cues")
 
+    def _refresh_labels(self):
+        """Update the loaded-file line, info and summary from the current doc —
+        without touching the frame-rate control (so a manual override sticks)."""
+        doc = self._doc
+        if doc is None:
+            return
+        n = len(doc.cues)
         if self._is_bin():
             seq = doc.sequence_name or os.path.basename(self._path)
             self.drop.show_loaded(self._path, f"{seq} · {n} subtitles · {doc.fps:g} fps")
@@ -274,26 +308,22 @@ class CaptionsTab(QWidget):
         else:
             self.drop.show_loaded(self._path, f"{n} cues · {self.fps.currentText()}")
             self.info.setText(f"{os.path.basename(self._path)}\n{n} caption cues detected.")
-
         self.cue_count.setText(f"{n} cues")
         self.summary.setText(f"{n} cues ready to export as SubRip")
         if doc.warnings:
             self.summary.setText("⚠ " + doc.warnings[0])
         self._update_actions()
-        self.status.emit(f"Read {n} subtitles" if self._is_bin() else f"Converted {n} caption cues")
 
     def _sync_fps_control(self, doc: CaptionDoc):
-        """A bin dictates its own rate (control disabled, set to match); a .txt
-        leaves the rate user-selectable."""
+        """Set the control to the bin's detected rate, but leave it editable so the
+        user can override an ambiguous rate (Avid stores 24 and 23.976 alike)."""
         if self._is_bin():
             idx = _fps_preset_index(doc.fps, doc.drop)
             if idx is not None:
                 self._suppress_switch = True
                 self.fps.setCurrentIndex(idx)
                 self._suppress_switch = False
-            self.fps.setEnabled(False)
-        else:
-            self.fps.setEnabled(True)
+        self.fps.setEnabled(True)
 
     def _populate_sequences(self, doc: CaptionDoc):
         opts = doc.available_sequences

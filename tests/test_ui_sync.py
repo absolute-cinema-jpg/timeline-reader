@@ -73,6 +73,26 @@ def test_clearing_does_not_propagate():
     assert calls == [("cliplist", "")]
 
 
+def test_fps_preset_matches_exact_rate_not_rounded():
+    """A 24 fps sequence must map to '24', not '23.976' — rounding collapses the
+    two (both round to 24) and, since 23.976 is listed first, would mislabel every
+    24 fps bin. Same trap for 29.97 vs 30 and 59.94 vs 60."""
+    from timeline_reader.ui.captions_tab import _FPS_CHOICES, _fps_preset_index
+
+    def label(fps, drop=False):
+        i = _fps_preset_index(fps, drop)
+        return _FPS_CHOICES[i][0] if i is not None else None
+
+    assert label(24.0) == "24"
+    assert label(24000 / 1001) == "23.976"
+    assert label(25.0) == "25 (PAL)"
+    assert label(30.0) == "30"
+    assert label(30000 / 1001) == "29.97 NDF"
+    assert label(30000 / 1001, drop=True) == "29.97 DF"
+    assert label(60.0) == "60"
+    assert label(60000 / 1001) == "59.94"
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_") and callable(_fn):
