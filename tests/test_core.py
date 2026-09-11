@@ -791,7 +791,7 @@ def test_loader_parses_once_for_concurrent_tabs():
     calls: list[str] = []
     fake_tl = Timeline(name="stub", source_format="Avid Bin")
 
-    def fake_parse_open(f, path, key=None):
+    def fake_parse_open(f, path, key=None, prog=None):
         calls.append(path)
         time.sleep(0.05)  # long enough for the other threads to queue up
         return fake_tl
@@ -801,7 +801,7 @@ def test_loader_parses_once_for_concurrent_tabs():
 
     import contextlib
     orig = (A.open_bin, A.parse_open)
-    A.open_bin = contextlib.contextmanager(lambda path: iter([FakeFile()]))
+    A.open_bin = contextlib.contextmanager(lambda path, prog=None: iter([FakeFile()]))
     A.parse_open = fake_parse_open
     import timeline_reader.captions_avb as C
     orig_cap = C.parse_captions_open
@@ -863,6 +863,52 @@ def test_music_from_sample_bin():
     # A song reused far later in the timeline splits into separate cues.
     dimensions = [c for c in cues if c.song == "13-Dimensions"]
     assert len(dimensions) >= 2
+
+
+def test_progress_phases_map_onto_one_bar():
+    """Each stage reports its own 0..n as a slice of the whole load, and
+    listeners hear only whole-percent changes, in order."""
+    from timeline_reader import progress
+
+    heard: list[tuple[str, int]] = []
+    progress.add_listener(lambda path, pct: heard.append((path, pct)))
+    try:
+        prog = progress.Progress("/dir/THR.avb")
+        opening = prog.phase(0.0, 0.3)
+        opening.step(50, 100)
+        opening.step(50, 100)                      # same percent: not repeated
+        opening.finish()
+        walk = prog.phase(0.5, 0.97)
+        walk.step(1, 4)
+        walk.finish()
+        prog.set(1.0)
+        progress.phase(None, 0.0, 1.0).step(1, 2)  # nothing to report to: no-op
+    finally:
+        progress._listeners.clear()
+    assert heard == [
+        ("/dir/THR.avb", 15), ("/dir/THR.avb", 30), ("/dir/THR.avb", 61),
+        ("/dir/THR.avb", 97), ("/dir/THR.avb", 100),
+    ]
+
+
+def test_bin_load_reports_progress_to_the_end():
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "01-test files", "bin", "timeline-reader test.avb",
+    )
+    if not os.path.exists(path):
+        return
+    from timeline_reader import loader, progress
+
+    pcts: list[int] = []
+    progress.add_listener(lambda p, pct: pcts.append(pct) if p == path else None)
+    try:
+        loader.clear()
+        loader.load_timeline(path)
+    finally:
+        progress._listeners.clear()
+    assert pcts and pcts == sorted(pcts) and pcts[-1] == 100
+    assert len(pcts) > 20                           # moves steadily, not in one jump
 
 
 if __name__ == "__main__":

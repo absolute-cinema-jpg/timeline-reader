@@ -22,6 +22,7 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 
+from . import progress
 from .captions import CaptionDoc
 from .models import Timeline
 from .parsers import ParseError, parse_timeline
@@ -104,13 +105,15 @@ def _parse(path: str, sequence_key: int | None) -> _Loaded:
 
     timeline: Timeline | Exception
     captions: CaptionDoc | Exception
+    prog = progress.Progress(path)  # drives the drop zones' loading bar
     try:
-        with open_bin(path) as f:
-            timeline = _wrap(lambda: parse_open(f, path, sequence_key), path)
+        with open_bin(path, prog) as f:
+            timeline = _wrap(lambda: parse_open(f, path, sequence_key, prog), path)
             captions = _wrap(lambda: parse_captions_open(f, path, sequence_key), path)
     except Exception as exc:  # noqa: BLE001 - the open itself failed
         err = _as_parse_error(exc, path)
         timeline = captions = err
+    prog.set(1.0)
     return _Loaded(timeline=timeline, captions=captions)
 
 

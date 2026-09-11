@@ -20,12 +20,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QProgressBar,
     QPushButton,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
+from .. import progress
 from . import theme
 
 # Columns whose values are timecodes/durations -> render monospaced.
@@ -88,8 +90,29 @@ class LoadWorkers(QObject):
             self._live.remove(worker)
 
 
+class _ProgressBus(QObject):
+    """Relays the parser's progress reports onto the UI thread.
+
+    The loader reports from whichever worker thread is doing the parse; a Qt
+    signal emitted there and received by a widget is queued onto the UI thread
+    automatically. One bus serves every drop zone, as every tab loads the same
+    file at once and shows the same bar."""
+
+    updated = Signal(str, int)  # path, percent
+
+    _instance: "_ProgressBus | None" = None
+
+    @classmethod
+    def instance(cls) -> "_ProgressBus":
+        if cls._instance is None:
+            cls._instance = cls()
+            progress.add_listener(cls._instance.updated.emit)
+        return cls._instance
+
+
 class DropZone(QFrame):
-    """A dashed drop target that also offers a Browse button."""
+    """A dashed drop target that also offers a Browse button, with a thin
+    loading bar while the chosen file is being read."""
 
     fileSelected = Signal(str)
 
@@ -128,10 +151,23 @@ class DropZone(QFrame):
         btn_row.addWidget(self.browse)
         btn_row.addWidget(self.clear_btn)
 
+        # Loading bar: shown from the moment a load starts until it lands, fed
+        # by the parser's progress reports for the file being loaded.
+        self.progress = QProgressBar()
+        self.progress.setObjectName("DropProgress")
+        self.progress.setRange(0, 100)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(4)
+        self.progress.setFixedWidth(260)
+        self.progress.hide()
+        self._loading_path: str | None = None
+        _ProgressBus.instance().updated.connect(self._on_progress)
+
         lay.addWidget(self.icon)
         lay.addWidget(self.title)
         lay.addWidget(self.sub)
         lay.addSpacing(4)
+        lay.addWidget(self.progress, 0, Qt.AlignHCenter)
         lay.addLayout(btn_row)
 
     # ---- drag & drop ----
@@ -176,8 +212,24 @@ class DropZone(QFrame):
         if path:
             self._emit(path)
 
+    # ---- loading bar ----
+    def begin_loading(self, path: str):
+        """Show the bar (empty) for a load of ``path`` that has just started."""
+        self._loading_path = path
+        self.progress.setValue(0)
+        self.progress.show()
+
+    def end_loading(self):
+        self._loading_path = None
+        self.progress.hide()
+
+    def _on_progress(self, path: str, percent: int):
+        if self._loading_path is not None and path == self._loading_path:
+            self.progress.setValue(percent)
+
     # ---- state ----
     def show_loaded(self, path: str, meta: str = ""):
+        self.end_loading()
         self.icon.setText("🎬")
         self.title.setText(os.path.basename(path))
         self.sub.setText(meta or path)
@@ -188,6 +240,7 @@ class DropZone(QFrame):
         self.style().polish(self)
 
     def clear(self):
+        self.end_loading()
         self.icon.setText("⬇")
         self.title.setText(self._default_title)
         self.sub.setText(self._default_sub)

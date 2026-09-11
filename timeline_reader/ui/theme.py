@@ -156,6 +156,8 @@ QTabBar::tab:selected {{
 #DropTitle {{ color: {TEXT}; font-size: 14px; font-weight: 500; }}
 #DropSub {{ color: {TEXT_DIM}; font-size: 12px; }}
 #DropIcon {{ font-size: 30px; color: {TEXT_DIM}; }}
+#DropProgress {{ background: {BORDER}; border: none; border-radius: 2px; }}
+#DropProgress::chunk {{ background: {ACCENT}; border-radius: 2px; }}
 
 /* ---- Buttons ---- */
 QPushButton {{

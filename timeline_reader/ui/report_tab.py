@@ -310,6 +310,7 @@ class TimelineReportTab(QWidget):
         self.status.emit(f"Reading {os.path.basename(path)}…")
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
         self.export_btn.setEnabled(False)
+        self.drop.begin_loading(path)
         worker = _ParseWorker(path, key)
         worker.finished.connect(lambda: QGuiApplication.restoreOverrideCursor())
         self._workers.start(worker)
@@ -364,6 +365,7 @@ class TimelineReportTab(QWidget):
 
     def _on_failed(self, message: str):
         QGuiApplication.restoreOverrideCursor()
+        self.drop.end_loading()
         self.status.emit("Load failed")
         QMessageBox.warning(self, "Could not load file", message)
         self._update_actions()

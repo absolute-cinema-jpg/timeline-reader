@@ -125,6 +125,23 @@ def test_tab_already_on_that_sequence_is_not_reloaded():
     assert ("opticals", "/dir/THR.avb", 1) not in loads  # the origin loads itself
 
 
+def test_drop_zone_bar_follows_progress_for_its_file_only():
+    from timeline_reader import progress
+    from timeline_reader.ui.widgets import DropZone
+
+    zone = DropZone("Drop", "sub", [".avb"])
+    assert zone.progress.isHidden()
+    zone.begin_loading("/dir/THR.avb")
+    assert not zone.progress.isHidden() and zone.progress.value() == 0
+    # Reports arrive from the parser thread via the bus; another file's don't count.
+    progress.Progress("/dir/OTHER.avb").set(0.9)
+    progress.Progress("/dir/THR.avb").set(0.42)
+    _app.processEvents()
+    assert zone.progress.value() == 42
+    zone.show_loaded("/dir/THR.avb", "meta")
+    assert zone.progress.isHidden()
+
+
 def test_fps_preset_matches_exact_rate_not_rounded():
     """A 24 fps sequence must map to '24', not '23.976' — rounding collapses the
     two (both round to 24) and, since 23.976 is listed first, would mislabel every

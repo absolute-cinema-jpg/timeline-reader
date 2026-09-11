@@ -13,8 +13,11 @@ the tape is the physical SourceMob.
 from __future__ import annotations
 
 import contextlib
+import io
 import os
+import threading
 
+from .. import progress
 from ..effects import classify
 from ..keyframes import describe_motion, summarize_keyframes
 from ..models import Clip, Effect, SequenceOption, Timeline
@@ -29,8 +32,47 @@ except Exception as exc:  # pragma: no cover
     _IMPORT_ERROR = exc
 
 
+# How the loading bar is split between the stages of reading a bin. The open
+# and the mob scan grow with the bin (every object header, every master clip);
+# the walk grows with the chosen sequence. The remainder is the caption parse.
+OPEN_PHASE = (0.0, 0.30)
+SCAN_PHASE = (0.30, 0.50)
+WALK_PHASE = (0.50, 0.97)
+
+
+class _OpenWatch(threading.Thread):
+    """Reports how far pyavb's open has got, without slowing it.
+
+    Opening a bin walks every object header front to back, so the file position
+    is a true measure of the open — the slowest single step on a large bin. A
+    Python ``seek`` override to report it would cost ~30% of the open, so the
+    position is polled from this side thread instead (an ``lseek`` on the
+    descriptor, which doesn't disturb the reader) and the open runs at full
+    speed. Runs only for the duration of the open."""
+
+    def __init__(self, fd: int, size: int, phase: progress.Phase):
+        super().__init__(name="avb-open-progress", daemon=True)
+        self._fd = fd
+        self._size = max(size, 1)
+        self._phase = phase
+        self._stop = threading.Event()
+
+    def run(self) -> None:
+        while not self._stop.wait(0.05):
+            try:
+                pos = os.lseek(self._fd, 0, os.SEEK_CUR)
+            except OSError:
+                return
+            self._phase.step(pos, self._size)
+
+    def close(self) -> None:
+        self._stop.set()
+        self.join()
+        self._phase.finish()
+
+
 @contextlib.contextmanager
-def open_bin(path: str):
+def open_bin(path: str, prog: progress.Progress | None = None):
     """Open a bin for reading with pyavb's object cache pinned.
 
     pyavb reads objects lazily and keeps them in a ``WeakValueDictionary``, so
@@ -49,7 +91,14 @@ def open_bin(path: str):
     """
     if avb is None:  # pragma: no cover
         raise ParseError(f"pyavb is not available: {_IMPORT_ERROR}")
-    with avb.open(path) as f:
+    fh = io.open(path, "rb")
+    watch = _OpenWatch(fh.fileno(), os.path.getsize(path), progress.phase(prog, *OPEN_PHASE))
+    watch.start()
+    try:
+        f = avb.open(fh)
+    finally:
+        watch.close()
+    with f:
         f.object_cache = {}
         try:
             yield f
@@ -58,7 +107,7 @@ def open_bin(path: str):
             f._tr_candidates = None
 
 
-def candidates(f) -> list:
+def candidates(f, prog: progress.Progress | None = None) -> list:
     """The bin's selectable sequences (alphabetical), computed once per open file.
 
     Enumerating candidates touches every mob in the bin, so the timeline parse
@@ -66,8 +115,20 @@ def candidates(f) -> list:
     """
     cached = getattr(f, "_tr_candidates", None)
     if cached is None:
-        cached = f._tr_candidates = _master_compositions(f.content.mobs)
+        cached = f._tr_candidates = _master_compositions(_mobs(f, prog))
     return cached
+
+
+def _mobs(f, prog: progress.Progress | None):
+    """The bin's mobs, reporting the scan as it goes."""
+    items = f.content.items
+    phase = progress.phase(prog, *SCAN_PHASE)
+    total = len(items)
+    for i, item in enumerate(items):
+        if i % 64 == 0:
+            phase.step(i, total)
+        yield item.mob
+    phase.finish()
 
 
 def default_key(f) -> int:
@@ -96,9 +157,11 @@ def parse(path: str, key: int | None = None) -> Timeline:
         return parse_open(f, path, key)
 
 
-def parse_open(f, path: str, key: int | None = None) -> Timeline:
+def parse_open(
+    f, path: str, key: int | None = None, prog: progress.Progress | None = None
+) -> Timeline:
     """Parse one sequence from an already-open bin (see :func:`open_bin`)."""
-    cands = candidates(f)
+    cands = candidates(f, prog)
     if not cands:
         raise ParseError("No editable sequence with picture tracks found in bin.")
     options = sequence_options(f)
@@ -127,24 +190,35 @@ def parse_open(f, path: str, key: int | None = None) -> Timeline:
         t for t in comp.tracks if getattr(t, "media_kind", None) == "picture"
     ]
     picture_tracks.sort(key=lambda t: getattr(t, "index", 0))
-
-    for tr in picture_tracks:
-        track_name = f"V{getattr(tr, 'index', '?')}"
-        seq = tr.component
-        if not isinstance(seq, Sequence):
-            continue
-        _walk_track(seq, track_name, fps, drop, tl, memo)
-        _collect_track_markers(seq, track_name, tl)
+    picture = [
+        (f"V{getattr(tr, 'index', '?')}", tr.component)
+        for tr in picture_tracks if isinstance(tr.component, Sequence)
+    ]
 
     sound_tracks = [
         t for t in comp.tracks if getattr(t, "media_kind", None) == "sound"
     ]
     sound_tracks.sort(key=lambda t: getattr(t, "index", 0))
-    for tr in sound_tracks:
-        track_name = f"A{getattr(tr, 'index', '?')}"
-        seq = _inner_sequence(tr.component)
-        if seq is not None:
-            _walk_audio_track(seq, track_name, fps, drop, tl, _track_muted(tr), memo)
+    sound = [
+        (f"A{getattr(tr, 'index', '?')}", _inner_sequence(tr.component), _track_muted(tr))
+        for tr in sound_tracks
+    ]
+    sound = [s for s in sound if s[1] is not None]
+
+    # The walk's progress is counted in top-level segments across every track.
+    walk = _WalkProgress(
+        progress.phase(prog, *WALK_PHASE),
+        sum(len(seq.components) for _, seq in picture)
+        + sum(len(seq.components) for _, seq, _ in sound),
+    )
+
+    for track_name, seq in picture:
+        _walk_track(seq, track_name, fps, drop, tl, memo, walk.tick)
+        _collect_track_markers(seq, track_name, tl)
+
+    for track_name, seq, muted in sound:
+        _walk_audio_track(seq, track_name, fps, drop, tl, muted, memo, walk.tick)
+    walk.finish()
 
     if not tl.clips:
         tl.warnings.append("Sequence parsed but no clips were found on picture tracks.")
@@ -156,12 +230,35 @@ def parse_open(f, path: str, key: int | None = None) -> Timeline:
 # --------------------------------------------------------------------------- #
 # Timeline walking
 # --------------------------------------------------------------------------- #
+class _WalkProgress:
+    """Counts segments walked against the sequence's total for the loading bar."""
+
+    def __init__(self, phase: progress.Phase, total: int):
+        self._phase = phase
+        self._total = total
+        self._done = 0
+
+    def tick(self) -> None:
+        self._done += 1
+        if self._done % 16 == 0:
+            self._phase.step(self._done, self._total)
+
+    def finish(self) -> None:
+        self._phase.finish()
+
+
+def _no_tick() -> None:
+    pass
+
+
 def _walk_track(
-    seq, track_name: str, fps: float, drop: bool, tl: Timeline, memo: dict | None = None
+    seq, track_name: str, fps: float, drop: bool, tl: Timeline, memo: dict | None = None,
+    tick=_no_tick,
 ) -> None:
     memo = {} if memo is None else memo
     pos = 0
     for comp in seq.components:
+        tick()
         length = int(getattr(comp, "length", 0) or 0)
         cname = type(comp).__name__
         if cname == "TransitionEffect":
@@ -247,7 +344,7 @@ def _track_muted(tr) -> bool:
 
 def _walk_audio_track(
     seq, track_name: str, fps: float, drop: bool, tl: Timeline, muted: bool = False,
-    memo: dict | None = None,
+    memo: dict | None = None, tick=_no_tick,
 ) -> None:
     """Walk one sound track in record order, appending a :class:`Clip` per audio
     segment to ``tl.audio_clips`` (kept apart from picture ``clips`` so the other
@@ -265,6 +362,7 @@ def _walk_audio_track(
     pending_head = 0
     last: Clip | None = None
     for comp in seq.components:
+        tick()
         length = int(getattr(comp, "length", 0) or 0)
         if type(comp).__name__ == "TransitionEffect":
             if last is not None:

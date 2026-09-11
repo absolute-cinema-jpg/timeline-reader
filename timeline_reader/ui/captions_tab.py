@@ -343,6 +343,7 @@ class CaptionsTab(QWidget):
             # A bin is read on a worker, like the other timeline tabs.
             self.status.emit(f"Reading {os.path.basename(self._path)}…")
             QGuiApplication.setOverrideCursor(Qt.BusyCursor)
+            self.drop.begin_loading(self._path)
             worker = _CaptionWorker(self._path, self._seq_key)
             worker.finished.connect(lambda: QGuiApplication.restoreOverrideCursor())
             self._workers.start(worker)
@@ -487,6 +488,7 @@ class CaptionsTab(QWidget):
 
     def _on_failed(self, message: str):
         QGuiApplication.restoreOverrideCursor()
+        self.drop.end_loading()
         self._doc = None
         self._srt = ""
         self._set_preview("")
