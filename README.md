@@ -26,7 +26,8 @@ a sequence by typing the same word into the clip note (the segment **Comment**) 
 each clip you want to collect — say `stock` on every stock-footage shot — then load
 the bin here and type that word. The matching clips are listed with their **note,
 clip name, tape/source, track and full source/record timecodes**. Matching is a
-case-insensitive substring, so `stock` finds "stock footage" too; leaving the box
+case-insensitive substring by default, so `stock` finds "stock footage" too; tick
+**Exact text matching** to keep only notes that are exactly the tag. Leaving the box
 empty lists every tagged clip so you can see what tags a sequence carries. Like the
 other reports it has selection-aware stats, row-selection export, **Choose
 columns…** and drag-to-reorder headers, and can export the matches as Avid markers

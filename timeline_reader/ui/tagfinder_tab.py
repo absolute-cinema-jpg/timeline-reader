@@ -14,7 +14,7 @@ an empty search still shows every tagged clip as a browse aid.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QLineEdit
+from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
 
 from ..columns import TAGFINDER_REPORT
 from ..rowset import RowSet
@@ -44,20 +44,35 @@ class TagFinderTab(TimelineReportTab):
         self._search.setClearButtonEnabled(True)
         self._search.setMinimumWidth(300)
         self._search.textChanged.connect(self._on_search_changed)
+        self._exact = QCheckBox("Exact text matching")
+        self._exact.setToolTip(
+            "Off: find notes that contain the tag (so \"stock\" finds "
+            "\"stock footage\").\nOn: keep only notes that are exactly the tag."
+        )
+        self._exact.toggled.connect(self._on_search_changed)
+        bar.insertWidget(0, self._exact)
         bar.insertWidget(0, self._search)
         bar.insertWidget(0, QLabel("Tag:"))
         return bar
 
     def _compute_contexts(self) -> list:
-        """Tagged clips, narrowed to the ones whose note contains the search
-        term (case-insensitive substring). An empty search shows them all."""
+        """Tagged clips, narrowed to the ones whose note matches the search term
+        (case-insensitive). Off = substring match, so "stock" finds "stock
+        footage"; on = the whole note must equal the term. Empty search shows
+        every tagged clip."""
         tagged = list(self._report.iter_ctx(self._timeline))
         self._tagged_total = len(tagged)
         term = self._search.text().strip().lower()
-        contexts = (
-            tagged if not term
-            else [c for c in tagged if term in c.clip.note.lower()]
-        )
+        if not term:
+            contexts = tagged
+        elif self._exact.isChecked():
+            # A clip can carry several notes joined with "; "; match any one.
+            contexts = [
+                c for c in tagged
+                if term in [p.strip().lower() for p in c.clip.note.split(";")]
+            ]
+        else:
+            contexts = [c for c in tagged if term in c.clip.note.lower()]
         self._update_empty_hint(term)
         return contexts
 
