@@ -47,7 +47,7 @@ from ..rowset import RowSet
 from ..timecode import frames_to_duration
 from .column_dialog import ColumnDialog
 from .report_tab import TIMELINE_EXTS, _ParseWorker
-from .widgets import DropZone, LoadWorkers, ReportTable, make_card, section_label
+from .widgets import DropZone, LoadWorkers, ReportTable, help_banner, make_card, section_label
 
 
 class MusicTab(QWidget):
@@ -77,6 +77,15 @@ class MusicTab(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(14)
+
+        root.addWidget(help_banner(
+            "Builds a music cue sheet from the timeline's audio. Segments of the "
+            "same source song are <b>merged into one cue</b>, bridging small gaps, "
+            "and reels are numbered by record hour. In the options below, choose "
+            "which sound tracks hold the music, <b>mute</b> tracks to exclude "
+            "them, and toggle whether dissolves split cues. Same table tools, "
+            "row removal and export as the other tabs."
+        ))
 
         top = QHBoxLayout()
         top.setSpacing(14)

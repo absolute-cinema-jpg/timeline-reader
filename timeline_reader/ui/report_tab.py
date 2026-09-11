@@ -44,7 +44,7 @@ from ..parsers import ParseError
 from ..rowset import RowSet
 from ..timecode import frames_to_duration
 from .column_dialog import ColumnDialog
-from .widgets import DropZone, LoadWorkers, ReportTable, make_card, section_label
+from .widgets import DropZone, LoadWorkers, ReportTable, help_banner, make_card, section_label
 
 TIMELINE_EXTS = [".avb", ".edl", ".aaf", ".txt", ".tsv", ".tab"]
 
@@ -85,6 +85,7 @@ class TimelineReportTab(QWidget):
         export_basename: str,
         empty_hint: str,
         count_label: str = "Clips",
+        description: str = "",
         parent=None,
     ):
         super().__init__(parent)
@@ -93,6 +94,7 @@ class TimelineReportTab(QWidget):
         self._export_basename = export_basename
         self._empty_hint = empty_hint
         self._count_label = count_label
+        self._description = description
         self._drop_title_text = drop_title
         self._drop_sub_text = drop_sub
         self._timeline: Timeline | None = None
@@ -114,6 +116,9 @@ class TimelineReportTab(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(14)
+
+        if self._description:
+            root.addWidget(help_banner(self._description))
 
         top = QHBoxLayout()
         top.setSpacing(14)

@@ -33,7 +33,7 @@ from ..exporters import write_text
 from ..loader import load_captions
 from ..parsers import ParseError
 from ..timecode import Timecode
-from .widgets import DropZone, LoadWorkers, make_card, section_label
+from .widgets import DropZone, LoadWorkers, help_banner, make_card, section_label
 
 
 def _nearest_hour(frames: int, fps: float) -> int:
@@ -127,6 +127,16 @@ class CaptionsTab(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(14)
+
+        root.addWidget(help_banner(
+            "Turns Avid <b>SubCap</b> subtitles embedded in a bin (.avb) into a "
+            "SubRip (.srt) file, reading each caption's text and timing from the "
+            "sequence. An Avid DS Caption (.txt) export also works as a fallback. "
+            "Timing is measured from where the video starts, so set <b>Video "
+            "starts at</b> and override the <b>Frame rate</b> if detection is "
+            "wrong; muted caption tracks are left out by default. The preview is "
+            "<b>editable</b> — your edits carry through to Copy and Export."
+        ))
 
         top = QHBoxLayout()
         top.setSpacing(14)

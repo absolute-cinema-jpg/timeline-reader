@@ -442,3 +442,13 @@ def section_label(text: str) -> QLabel:
     lbl = QLabel(text.upper())
     lbl.setObjectName("SectionLabel")
     return lbl
+
+
+def help_banner(text: str) -> QLabel:
+    """A short how-to-use paragraph shown at the top of a tab. Accepts simple
+    rich text (e.g. <b>…</b>) so key gotchas can be emphasised."""
+    lbl = QLabel(text)
+    lbl.setObjectName("TabHelp")
+    lbl.setTextFormat(Qt.RichText)
+    lbl.setWordWrap(True)
+    return lbl

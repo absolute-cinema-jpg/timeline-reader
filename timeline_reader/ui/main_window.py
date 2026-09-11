@@ -48,6 +48,14 @@ class MainWindow(QMainWindow):
             export_basename="opticals",
             empty_hint="Load a timeline to build the opticals list",
             count_label="Opticals",
+            description=(
+                "Lists only clips that carry an <b>Avid effect</b> — resizes, "
+                "reframes, 3D warps, timewarps, dissolves and the like — one row "
+                "per effect. Plain cuts are left out. Load an <b>Avid bin "
+                "(.avb)</b> for full effect detail; EDL and AAF carry much less. "
+                "The table works like All Clips: choose and reorder columns, "
+                "sort, remove rows, then export or copy."
+            ),
         )
         self.cliplist = TimelineReportTab(
             report=CLIPLIST_REPORT,
@@ -56,6 +64,16 @@ class MainWindow(QMainWindow):
             export_basename="cliplist",
             empty_hint="Load a timeline to build the clip list",
             count_label="Clips",
+            description=(
+                "Every clip on the timeline — one row per segment, across all "
+                "video and audio tracks. Drop an Avid bin (.avb), EDL, AAF or "
+                "tab-delimited export. Use <b>Choose columns…</b> to add source "
+                "metadata (Scene, Take, clip colour, notes), and drag headers to "
+                "reorder or click one to sort. Select rows to export only those, "
+                "or press <b>Delete</b> to remove rows you don't want "
+                "(<b>⌘Z</b> undoes). Export to CSV / Excel / etc. or copy to the "
+                "clipboard."
+            ),
         )
         self.tagfinder = TagFinderTab()
         self.music = MusicTab()

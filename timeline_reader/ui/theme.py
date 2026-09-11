@@ -133,6 +133,11 @@ QTabBar::tab:selected {{
 }}
 #SectionLabel {{ color: {TEXT_DIM}; font-size: 11px; font-weight: 600; letter-spacing: 1px; }}
 #Hint {{ color: {TEXT_DIM}; font-size: 12px; }}
+#TabHelp {{
+    color: {TEXT}; background: {BG_PANEL};
+    border: 1px solid {BORDER}; border-left: 3px solid {ACCENT};
+    border-radius: 6px; padding: 10px 12px; font-size: 12px;
+}}
 #StatBig {{ color: {TEXT_BRIGHT}; font-size: 22px; font-weight: 600; }}
 #StatLabel {{ color: {TEXT_DIM}; font-size: 11px; letter-spacing: 0.5px; }}
 #WarnLabel {{ color: {AMBER}; font-size: 12px; }}

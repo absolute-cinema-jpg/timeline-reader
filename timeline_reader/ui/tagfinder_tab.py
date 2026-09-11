@@ -37,6 +37,15 @@ class TagFinderTab(TimelineReportTab):
             export_basename="tagged",
             empty_hint="Load a sequence with timeline clip notes",
             count_label="Matches",
+            description=(
+                "Finds clips by their <b>timeline clip note</b> (the segment "
+                "Comment typed in Media Composer). Tag shots in Avid first — e.g. "
+                "put “stock” on every stock shot — then load the bin and "
+                "search that word to collect them. <b>Only clips that carry a "
+                "note appear</b>; an empty search lists them all. Turn on "
+                "<b>Exact text matching</b> to require the note to equal the tag "
+                "exactly."
+            ),
             parent=parent,
         )
 
