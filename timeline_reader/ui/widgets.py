@@ -462,7 +462,9 @@ class HelpBanner(QWidget):
         self.hide()  # collapsed by default
 
     def is_open(self) -> bool:
-        return self.isVisible()
+        # The banner's own toggle state: isVisible() would also be False while
+        # the page or window is hidden, which isn't what the "i" button asks.
+        return not self.isHidden()
 
     def set_open(self, on: bool) -> None:
         self.setVisible(on)

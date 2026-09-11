@@ -20,6 +20,7 @@ from .. import __app_name__, __version__
 from ..columns import CLIPLIST_REPORT, OPTICALS_REPORT
 from .assets import icon_path
 from .captions_tab import CaptionsTab
+from .keynav import KeyNav
 from .music_tab import MusicTab
 from .report_tab import TimelineReportTab
 from .widgets import HelpBanner
@@ -150,6 +151,7 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
         self.statusBar().showMessage("Ready")
+        self.keynav = KeyNav(self)  # ← → tabs, ↑ ↓ sequences, Enter browse/export
         self._sync_info_button()
 
     # ---- per-tab help paragraph ------------------------------------------
