@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QTabBar,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -25,6 +26,36 @@ from .music_tab import MusicTab
 from .report_tab import TimelineReportTab
 from .widgets import HelpBanner
 from .tagfinder_tab import TagFinderTab
+
+
+class _TabBar(QTabBar):
+    """Tab bar that washes one tab in a faint tint, to set an odd-one-out tab
+    (the SRT Generator, which works differently) subtly apart from the rest."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._accent_index = -1
+        self._tint = QColor(90, 140, 200, 34)  # low-alpha cool wash
+
+    def set_accent_tab(self, index: int) -> None:
+        self._accent_index = index
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not (0 <= self._accent_index < self.count()):
+            return
+        rect = self.tabRect(self._accent_index)
+        if rect.isNull():
+            return
+        # Inset to match the QSS pill (margin 3×6, radius 6).
+        rect = rect.adjusted(3, 6, -3, -6)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(rect, 6, 6)
+        painter.fillPath(path, self._tint)
+        painter.end()
 
 
 class _TabWidget(QTabWidget):
@@ -71,6 +102,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(self._top_bar())
 
         self.tabs = _TabWidget()
+        self.tabs.setTabBar(_TabBar())
         self.tabs.setDocumentMode(True)
 
         self.opticals = TimelineReportTab(
@@ -140,6 +172,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tagfinder, "  Tag Finder  ")
         self.tabs.addTab(self.music, "  Music Tracker  ")
         self.tabs.addTab(self.captions, "  SRT Generator  ")
+        # The SRT Generator works differently from the report tabs — tint it.
+        self.tabs.tabBar().set_accent_tab(self.tabs.indexOf(self.captions))
 
         # A single, subtle "i" button on the tab-bar level toggles the current
         # tab's help paragraph.
