@@ -64,6 +64,7 @@ def parse_captions_open(f, path: str, key: int | None = None) -> CaptionDoc:
     fps, drop = _sequence_rate(comp)
     start = _read_start_tc(comp, fps)
     doc = CaptionDoc(fps=fps, drop=drop, source_path=path)
+    doc.start_tc = start
     doc.available_sequences = sequence_options(f)
     doc.sequence_key = key
     doc.sequence_name = getattr(comp, "name", "") or ""

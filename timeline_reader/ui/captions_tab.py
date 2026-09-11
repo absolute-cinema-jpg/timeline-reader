@@ -32,7 +32,20 @@ from ..captions import CaptionDoc, parse_caption_file, to_srt, visible_cues
 from ..exporters import write_text
 from ..loader import load_captions
 from ..parsers import ParseError
+from ..timecode import Timecode
 from .widgets import DropZone, make_card, section_label
+
+
+def _nearest_hour(frames: int, fps: float) -> int:
+    """The whole-hour timecode closest to ``frames``.
+
+    Reels are cut to start on the hour with a few seconds of leader in front, so
+    a sequence starting at 03:59:52:00 belongs to the 04:00:00:00 hour.
+    """
+    per_hour = int(round(fps * 3600))
+    if per_hour <= 0:
+        return 0
+    return int(round(frames / per_hour)) * per_hour
 
 # Extensions handled here: an Avid bin, or a DS Caption text export.
 BIN_EXT = ".avb"
@@ -102,6 +115,7 @@ class CaptionsTab(QWidget):
         self._doc: CaptionDoc | None = None
         self._srt = ""
         self._seq_key: int | None = None      # chosen sequence within a bin
+        self._origin_offsets: list[int] = [0]  # frames to subtract, per origin choice
         self._loading = False                  # replacing the preview programmatically
         self._worker: _CaptionWorker | None = None
         self._suppress_switch = False          # populating the sequence combo
@@ -177,6 +191,22 @@ class CaptionsTab(QWidget):
         row.addStretch(1)
         lay.addLayout(row)
 
+        self.origin_row = QWidget()
+        origin_lay = QHBoxLayout(self.origin_row)
+        origin_lay.setContentsMargins(0, 0, 0, 0)
+        origin_lay.setSpacing(10)
+        origin_lay.addWidget(QLabel("Video starts at:"))
+        self.origin = QComboBox()
+        self.origin.setMinimumWidth(220)
+        self.origin.setToolTip(
+            "The timecode of the first frame of the video these subtitles play "
+            "against. Cue times are shifted so they line up with it."
+        )
+        self.origin.currentIndexChanged.connect(self._on_origin_changed)
+        origin_lay.addWidget(self.origin, 1)
+        self.origin_row.hide()
+        lay.addWidget(self.origin_row)
+
         self.muted_cb = QCheckBox("Include muted captions")
         self.muted_cb.setToolTip(
             "Captions on clips disabled in the Avid timeline are left out of the "
@@ -246,6 +276,14 @@ class CaptionsTab(QWidget):
             if self._doc is not None:
                 fps, drop = self._fps_drop()
                 self._doc.fps, self._doc.drop = fps, drop
+                # The origin labels are timecodes, so they re-read at the new
+                # rate; keep whichever origin the user had chosen.
+                keep = self.origin.currentIndex()
+                self._populate_origin(self._doc)
+                if 0 <= keep < self.origin.count():
+                    self._suppress_switch = True
+                    self.origin.setCurrentIndex(keep)
+                    self._suppress_switch = False
                 self._render()
         else:
             self._reconvert()
@@ -255,11 +293,28 @@ class CaptionsTab(QWidget):
         if self._doc is not None:
             self._render()
 
+    def _on_origin_changed(self, _index: int):
+        if self._suppress_switch:
+            return
+        if self._doc is not None:
+            self._render()
+
+    def _offset(self) -> int:
+        """Frames to subtract from every cue for the chosen export origin."""
+        i = self.origin.currentIndex()
+        if 0 <= i < len(self._origin_offsets):
+            return self._origin_offsets[i]
+        return 0
+
     def _render(self):
         """Rebuild the SRT from the current doc and options, without re-parsing."""
         if self._doc is None:
             return
-        self._srt = to_srt(self._doc, include_muted=self.muted_cb.isChecked())
+        self._srt = to_srt(
+            self._doc,
+            include_muted=self.muted_cb.isChecked(),
+            offset=self._offset(),
+        )
         self._set_preview(self._srt)
         self._refresh_labels()
 
@@ -302,16 +357,48 @@ class CaptionsTab(QWidget):
 
     def _on_doc(self, doc: CaptionDoc):
         self._doc = doc
-        self._srt = to_srt(doc, include_muted=self.muted_cb.isChecked())
         self._show_doc()
 
     def _show_doc(self):
-        n = len(self._shown_cues())
-        self._set_preview(self._srt)
         self._sync_fps_control(self._doc)
         self._populate_sequences(self._doc)
-        self._refresh_labels()
+        self._populate_origin(self._doc)
+        self._render()  # builds the SRT with the freshly chosen origin
+        n = len(self._shown_cues())
         self.status.emit(f"Read {n} subtitles" if self._is_bin() else f"Converted {n} caption cues")
+
+    def _populate_origin(self, doc: CaptionDoc):
+        """Offer the timecodes the exported video might start at.
+
+        A reel sequence starts at its record TC (e.g. 03:59:52:00, eight seconds
+        of leader before the hour). Subtitles have to be timed from the first
+        frame of the file they play against, so default to the sequence start and
+        offer the round hour for exports that begin at the top of the reel.
+        """
+        self._suppress_switch = True
+        self.origin.clear()
+        self._origin_offsets = []
+        start = doc.start_tc if self._is_bin() else 0
+        if start > 0:
+            self._add_origin(f"Sequence start — {self._tc(start)}", start)
+            hour = _nearest_hour(start, doc.fps)
+            if hour and hour != start:
+                self._add_origin(f"Whole hour — {self._tc(hour)}", hour)
+        self._add_origin("Keep absolute timecode", 0)
+        self.origin.setCurrentIndex(0)
+        self._suppress_switch = False
+        # Nothing to choose when the sequence already starts at zero.
+        self.origin_row.setVisible(len(self._origin_offsets) > 1)
+
+    def _add_origin(self, label: str, offset: int):
+        self.origin.addItem(label)
+        self._origin_offsets.append(offset)
+
+    def _tc(self, frames: int) -> str:
+        doc = self._doc
+        fps = doc.fps if doc else 25.0
+        drop = doc.drop if doc else False
+        return Timecode(frames, fps, drop).to_string()
 
     def _shown_cues(self):
         if self._doc is None:
@@ -377,6 +464,7 @@ class CaptionsTab(QWidget):
         self._srt = ""
         self._set_preview("")
         self.seq_row.hide()
+        self.origin_row.hide()
         self.fps.setEnabled(True)
         self.cue_count.setText("")
         self.info.setText(
@@ -401,6 +489,7 @@ class CaptionsTab(QWidget):
         self._seq_key = None
         self._set_preview("")
         self.seq_row.hide()
+        self.origin_row.hide()
         self.fps.setEnabled(True)
         self.info.setText("No file loaded")
         self.cue_count.setText("")

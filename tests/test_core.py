@@ -387,6 +387,35 @@ def test_timeline_notes_from_sample_bin():
     assert {c.clip.note for c in hits} == {"Note 1", "note 2", "note 3"}
 
 
+def test_reel_captions_offset_to_start_of_export():
+    """A reel sequence starts at its record TC (03:59:52:00), so absolute cue
+    times land hours past the end of an exported file and no player shows them.
+    Offsetting by the sequence start puts every cue inside the file's duration.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "01-test files", "bin", "260911_Sub captions.avb",
+    )
+    if not os.path.exists(path):
+        return
+    from timeline_reader.captions import to_srt, visible_cues
+    from timeline_reader.captions_avb import parse_captions
+
+    doc = parse_captions(path, 0)                 # SubV_Reel4, starts 03:59:52:00
+    assert doc.start_tc == 345408
+
+    # Absolute: four hours in — past the end of an 18:55 export.
+    assert to_srt(doc).startswith("1\n04:01:37,833")
+    # Offset to the sequence start: inside the file.
+    assert to_srt(doc, offset=doc.start_tc).startswith("1\n00:01:45,833")
+
+    # Every offset cue sits within the sequence duration (00:18:55:15).
+    length = 27255  # frames @24
+    for cue in visible_cues(doc):
+        assert 0 <= cue.start - doc.start_tc <= length
+        assert cue.end - doc.start_tc <= length
+
+
 def test_muted_captions_excluded_by_default():
     """Captions on clips disabled in the timeline are left out of the SRT unless
     asked for. Media Composer wraps a disabled clip in a Selector carrying

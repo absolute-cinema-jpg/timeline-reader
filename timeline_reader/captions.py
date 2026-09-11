@@ -48,6 +48,7 @@ class CaptionDoc:
     source_path: str = ""
     warnings: list[str] = field(default_factory=list)
     # Populated when the cues come from an Avid bin (.avb) rather than a .txt.
+    start_tc: int = 0                # sequence record start, frames (cues are absolute)
     available_sequences: list = field(default_factory=list)
     sequence_key: int | None = None
     sequence_name: str = ""
@@ -154,16 +155,25 @@ def visible_cues(doc: CaptionDoc, include_muted: bool = False) -> list[Cue]:
     return [c for c in doc.cues if not c.muted]
 
 
-def to_srt(doc: CaptionDoc, include_muted: bool = False) -> str:
+def to_srt(doc: CaptionDoc, include_muted: bool = False, offset: int = 0) -> str:
     """Render a CaptionDoc as SubRip text, renumbering from 1.
 
     Muted (disabled) cues are excluded by default; caption .txt sources never
     mark any, so this only affects bins.
+
+    ``offset`` (frames) is subtracted from every cue so the times line up with
+    the first frame of the video the subtitles play against. A reel sequence
+    starting at 03:59:52:00 would otherwise emit cues four hours in, past the
+    end of an exported file, and no player would ever show them.
     """
     blocks = []
     for i, cue in enumerate(visible_cues(doc, include_muted), 1):
-        start = Timecode(cue.start, doc.fps, doc.drop).to_srt()
-        end = Timecode(max(cue.end, cue.start), doc.fps, doc.drop).to_srt()
+        # Clamp at zero: SubRip has no negative times, and a cue before the
+        # offset (e.g. one sitting in the leader) belongs at the head of the file.
+        a = max(0, cue.start - offset)
+        b = max(a, cue.end - offset)
+        start = Timecode(a, doc.fps, doc.drop).to_srt()
+        end = Timecode(b, doc.fps, doc.drop).to_srt()
         text = cue.text().strip() or " "
         blocks.append(f"{i}\n{start} --> {end}\n{text}\n")
     return "\n".join(blocks)
