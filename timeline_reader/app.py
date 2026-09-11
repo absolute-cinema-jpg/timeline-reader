@@ -18,6 +18,29 @@ def _icon() -> QIcon:
     return QIcon(path) if path else QIcon()
 
 
+def _fix_macos_app_name(name: str) -> None:
+    """Make the macOS menu-bar / Dock / ⌘-Tab name read *name* instead of
+    "Python" when running from source.
+
+    That name comes from the main bundle's ``CFBundleName``. A packaged ``.app``
+    supplies it via its Info.plist, but a plain ``python -m`` launch has no
+    bundle, so macOS falls back to the interpreter's name. Patching the bundle's
+    (mutable) info dictionary before the QApplication is created fixes it. No-op
+    off macOS, or if PyObjC isn't installed."""
+    if sys.platform != "darwin":
+        return
+    try:
+        from Foundation import NSBundle
+    except Exception:
+        return
+    bundle = NSBundle.mainBundle()
+    if bundle is None:
+        return
+    info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+    if info is not None and info.get("CFBundleName") != name:
+        info["CFBundleName"] = name
+
+
 def install_shortcuts(win: QWidget) -> QShortcut:
     """Close the window with ⌘W. Qt maps 'Ctrl' to the Command key on macOS, so
     'Ctrl+W' is ⌘W there; as the app has a single window and Qt quits when the
@@ -29,6 +52,7 @@ def install_shortcuts(win: QWidget) -> QShortcut:
 
 
 def main() -> int:
+    _fix_macos_app_name(__app_name__)
     app = QApplication(sys.argv)
     app.setApplicationName(__app_name__)
     app.setApplicationDisplayName(__app_name__)
