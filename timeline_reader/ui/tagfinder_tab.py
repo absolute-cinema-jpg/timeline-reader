@@ -32,8 +32,8 @@ class TagFinderTab(TimelineReportTab):
         self._tagged_total = 0
         super().__init__(
             report=TAGFINDER_REPORT,
-            drop_title="Drop a timeline file",
-            drop_sub="Avid bin (.avb) carries timeline clip notes",
+            drop_title="Drop an Avid bin (.avb)",
+            drop_sub="Timeline clip notes read straight from the bin",
             export_basename="tagged",
             empty_hint="Load a sequence with timeline clip notes",
             count_label="Matches",
