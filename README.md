@@ -37,7 +37,7 @@ single cue. A cue ends only when it falls **silent longer than a set gap**
 per track, not per clip) are excluded by default; tick **Include muted clips** to
 keep them, which adds a **Muted** column flagging them.
 
-### 5. Captions → SRT
+### 5. SRT Generator
 Converts an **Avid bin (`.avb`)** file into a standard **SubRip (`.srt`)**
 subtitle file, with a live preview and a selectable frame rate. 
 
