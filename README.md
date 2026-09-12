@@ -2,7 +2,7 @@
 
 A translation layer for Avid Media Composer. Drop in an avid bin file (.avb) and get clean department reports as spreadsheets — no manual timeline study required.
 
-Outputs at csv,tsv,xlsx,odf and Avid markers. 
+Outputs at csv, tsv, xlsx, odf and Avid markers. 
 
 ## Features
 
