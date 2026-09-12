@@ -167,17 +167,3 @@ timeline_reader/
     widgets.py        drop zone + report table
     theme.py          Resolve-style dark theme
 ```
-
-## Notes & next steps
-
-- **Caption format:** the DS Caption parser is written to the common
-  `IN  OUT  text` shape and is deliberately forgiving. Share a real Avid DS
-  Caption `.txt` and the parser can be tightened to match your facility's exact
-  layout (headers, styling tags, positioning, etc.).
-- **Motion speed:** the bin's stored speed ratio is reported as-is and is
-  approximate for freeze frames; EDL `M2` values are exact where available.
-- **Effect scope:** the opticals rules live in `effects.py` and are one line
-  each to adjust if you want to include or exclude a category.
-- **Multiple sequences:** if a bin holds more than one sequence, the longest
-  master sequence is used. A sequence picker is a natural next addition
-  (`avb_parser.list_sequences()` already enumerates them).
