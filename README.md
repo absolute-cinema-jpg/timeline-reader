@@ -2,7 +2,7 @@
 
 A translation layer for Avid Media Composer. Drop in an avid bin file (.avb) and get clean department reports as spreadsheets — no manual timeline study required.
 
-Outputs at csv,tsv,xlsx,odf and Avid marker .txt file. 
+Outputs at csv,tsv,xlsx,odf and Avid markers. 
 
 ## Features
 
@@ -52,15 +52,8 @@ default (unchanged from before), and any **metadata found in the source** is
 offered as an extra, optional column:
 
 - **Avid bin** — the user bin columns (Scene, Take, Circled, Comment, …),
-  derived fields (Project, Format, Origin Bin), the **clip colour** (mapped to a
-  nearest Avid colour name) and **marker / locator comments**.
-- **Tab-delimited** — any heading not mapped to a standard field.
-
-Each report can be **exported to CSV, TSV, Excel (`.xlsx`), OpenDocument
-(`.ods`) or Avid Markers (`.txt`)** — SRT for captions — or copied to the
-clipboard. Excel/ODS exports carry a bold, frozen header row (with an
-auto-filter in Excel). If a selection is active, only the selected rows are
-exported.
+  derived fields (Project, Format, Origin Bin) and the **clip colour** (mapped to a
+  nearest Avid colour name)
 
 **Editing the preview:** select rows and press **Delete** / **Backspace** to
 remove them from the report, **⌘Z** to undo the last deletion, and a **Reset
@@ -68,23 +61,10 @@ rows** button (next to *Clear selection*, shown only once you've deleted
 something) to bring every row back. Deletions survive column reorders and only
 affect the export/preview — the loaded file is never changed.
 
-**Keyboard:** **⇧← ⇧→** move between tabs, **⇧↑ ⇧↓** cycle through the
-sequences in the loaded bin, **⇧Enter** opens the file picker (Browse… /
+**Keyboard:** **shift-⇧← ⇧→** move between tabs, **shift-⇧↑ ⇧↓** cycle through the
+sequences in the loaded bin, **shift-⇧Enter** opens the file picker (Browse… /
 Replace…) and **Enter** exports the current report. Plain arrows move around
 the table as usual, and text fields keep their keys. **⌘W** closes the app.
-
-**Markers (`.txt`)** writes a Media Composer marker-import file — one marker per
-row, placed at the row's record timecode — so a report round-trips back onto the
-timeline. The marker's name / comment are filled per report: Opticals uses the
-Effect as the marker name and the Notes as its comment; the Music Tracker leaves
-the name blank and sets the comment to `Artist - Track (Duration)`; the Clip List
-uses the clip name; and the Markers tab reproduces the loaded locators.
-
-### Remembered between sessions
-The app remembers, via `QSettings` (`timeline_reader/settings.py`): the folder
-you last **opened** a file from (the file picker reopens there), the folder you
-last **exported** to, your chosen **export format**, the caption **frame rate**,
-and your per-report **column selection and order**.
 
 ## Running from source
 
