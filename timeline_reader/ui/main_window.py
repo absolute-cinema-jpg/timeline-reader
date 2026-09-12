@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -24,37 +24,37 @@ from .captions_tab import CaptionsTab
 from .keynav import KeyNav
 from .music_tab import MusicTab
 from .report_tab import TimelineReportTab
+from .theme import HEADER_BG
 from .widgets import HelpBanner
 from .tagfinder_tab import TagFinderTab
 
 
 class _TabBar(QTabBar):
-    """Tab bar that washes one tab in a faint tint, to set an odd-one-out tab
-    (the SRT Generator, which works differently) subtly apart from the rest."""
+    """Tab bar that quietens one tab, marking it as a secondary add-on rather
+    than a main feature. The SRT Generator works differently from the report
+    tabs, so its label is faded (when not the current tab) so it recedes."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._accent_index = -1
-        self._tint = QColor(90, 140, 200, 34)  # low-alpha cool wash
+        self._muted_index = -1
+        # A veil in the header colour, painted over the tab to fade its label.
+        self._veil = QColor(HEADER_BG)
+        self._veil.setAlpha(120)
 
-    def set_accent_tab(self, index: int) -> None:
-        self._accent_index = index
+    def set_muted_tab(self, index: int) -> None:
+        self._muted_index = index
         self.update()
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if not (0 <= self._accent_index < self.count()):
-            return
-        rect = self.tabRect(self._accent_index)
+        i = self._muted_index
+        if not (0 <= i < self.count()) or i == self.currentIndex():
+            return  # leave the current tab fully legible
+        rect = self.tabRect(i)
         if rect.isNull():
             return
-        # Inset to match the QSS pill (margin 3×6, radius 6).
-        rect = rect.adjusted(3, 6, -3, -6)
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        path = QPainterPath()
-        path.addRoundedRect(rect, 6, 6)
-        painter.fillPath(path, self._tint)
+        painter.fillRect(rect, self._veil)
         painter.end()
 
 
@@ -172,8 +172,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tagfinder, "  Tag Finder  ")
         self.tabs.addTab(self.music, "  Music Tracker  ")
         self.tabs.addTab(self.captions, "  SRT Generator  ")
-        # The SRT Generator works differently from the report tabs — tint it.
-        self.tabs.tabBar().set_accent_tab(self.tabs.indexOf(self.captions))
+        # The SRT Generator is a secondary add-on — fade it vs the report tabs.
+        self.tabs.tabBar().set_muted_tab(self.tabs.indexOf(self.captions))
 
         # A single, subtle "i" button on the tab-bar level toggles the current
         # tab's help paragraph.
