@@ -91,10 +91,12 @@ def render_master(size: int = 1024) -> QImage:
     # Playhead
     px = margin_x + track_w * 0.52
     pen = QPen(QColor(PLAYHEAD), s * 0.012)
-    pen.setCapStyle(Qt.FlatCap)  # end exactly at the tip, no square-cap overshoot
+    pen.setCapStyle(Qt.FlatCap)  # ends exactly at the endpoint, no overshoot
     p.setPen(pen)
-    # Start at the triangle's bottom tip so the line never pokes above it.
-    p.drawLine(QPointF(px, top - s * 0.005), QPointF(px, top + block_h + s * 0.02))
+    # Run the line up to the triangle's top edge (drawn on top of it) so it is
+    # full width right at the triangle's base — no pinch/gap — while the flat cap
+    # keeps it from poking above the triangle.
+    p.drawLine(QPointF(px, top - s * 0.055), QPointF(px, top + block_h + s * 0.02))
     # playhead knob (triangle)
     p.setPen(Qt.NoPen)
     p.setBrush(QColor(PLAYHEAD))
