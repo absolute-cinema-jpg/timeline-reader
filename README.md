@@ -1,38 +1,25 @@
 # Timeline Reader
 
-A translation layer for Avid Media Composer. Drop in a timeline export and get
-clean department reports as spreadsheets — no manual timeline study required.
+A translation layer for Avid Media Composer. Drop in an avid bin file (.avb) and get clean department reports as spreadsheets — no manual timeline study required.
+
+Outputs at csv,tsv,xlsx,odf and Avid marker .txt file. 
 
 ## Features
 
-### 1. Opticals List
+### 1. Clip List
+An ordered list of every clip in the timeline (record order), with **clip name,
+tape/source name, source in/out and record in/out** timecodes plus duration.
+
+### 2. Opticals List
 Every clip effect the online house needs during conform — **Resize, 3D Warp,
 Timewarp / motion effects, freeze frames, masks, flip/flop, reframes** — with
 clip name, source tape, record & source timecode, duration and notes (e.g.
 motion speed). Automatic reformats, colour correction, dissolves and titles are
 excluded so the list stays focused on true opticals.
 
-> The **Avid bin (`.avb`) is the richest source** and the only one carrying full
-> effect data. EDLs contribute motion (`M2`) and transition effects; a
-> flattened "AAF Picture" export carries no effects.
-
-### 2. Clip List
-An ordered list of every clip in the timeline (record order), with **clip name,
-tape/source name, source in/out and record in/out** timecodes plus duration.
-
 ### 3. Tag Finder
-Finds every clip you tagged with a **timeline clip note** in Media Composer. Prep
-a sequence by typing the same word into the clip note (the segment **Comment**) of
-each clip you want to collect — say `stock` on every stock-footage shot — then load
-the bin here and type that word. The matching clips are listed with their **note,
-clip name, tape/source, track and full source/record timecodes**. Matching is a
-case-insensitive substring by default, so `stock` finds "stock footage" too; tick
-**Exact text matching** to keep only notes that are exactly the tag. Leaving the box
-empty lists every tagged clip so you can see what tags a sequence carries. Like the
-other reports it has selection-aware stats, row-selection export, **Choose
-columns…** and drag-to-reorder headers, and can export the matches as Avid markers
-(each marker's comment is the clip note). Note extraction lives in
-`timeline_reader/parsers/avb_parser.py` (`_collect_note`).
+Finds every clip you tagged with a **timeline clip note** in Media Composer. Prep a sequence by typing the same word into the clip note (the segment **Comment**) of each clip you want to collect — say `stock` on every stock-footage shot — then load
+the bin here and type that word. The matching clips are listed with their **note, clip name, tape/source, track and full source/record timecodes**.
 
 ### 4. Music Tracker
 A music cue sheet built from the sound tracks — one row per piece of music with
@@ -50,27 +37,17 @@ single cue. A cue ends only when it falls **silent longer than a set gap**
 per track, not per clip) are excluded by default; tick **Include muted clips** to
 keep them, which adds a **Muted** column flagging them.
 
-The **Reel** is read from the hour field of the record TC In (a sequence starting
-at `01:00:00:00` is reel 1); Track, Album and Artist / Composer come from the
-clip's bin metadata (the song title, album and `Lead performer(s)/Soloist(s)`
-fields). Like the other reports it has the same layout, selection-aware stats,
-row-selection export, **Choose columns…** chooser (with an optional Audio Track
-column) and drag-to-reorder headers. Music cue merging lives in
-`timeline_reader/music.py`.
-
 ### 5. Captions → SRT
-Converts an **Avid DS Caption (`.txt`)** file into a standard **SubRip (`.srt`)**
-subtitle file, with a live preview and a selectable frame rate (including
-drop-frame for 29.97 / 59.94). Validated against a real Avid Caption export
-(`@ This file written with the Avid Caption plugin` / `<begin subtitles>` form).
+Converts an **Avid bin (`.avb`)** file into a standard **SubRip (`.srt`)**
+subtitle file, with a live preview and a selectable frame rate. 
 
 ### Multi-sequence sources
-When a bin or AAF contains more than one sequence, a **Sequence picker** appears
+When a bin contains more than one sequence, a **Sequence picker** appears
 in the report tabs so you can switch which sequence the report is built from —
 its video-track count and duration are shown for each.
 
 ### Configurable columns
-Both report tabs have a **Columns…** button. The built-in columns are on by
+All report tabs have a **Columns…** button. The built-in columns are on by
 default (unchanged from before), and any **metadata found in the source** is
 offered as an extra, optional column:
 
@@ -78,19 +55,6 @@ offered as an extra, optional column:
   derived fields (Project, Format, Origin Bin), the **clip colour** (mapped to a
   nearest Avid colour name) and **marker / locator comments**.
 - **Tab-delimited** — any heading not mapped to a standard field.
-
-Tick columns to include or exclude them, and reorder them either by **dragging
-a table-header directly** or by dragging a row in the dialog — both change how
-the columns appear in the table and the exported spreadsheet. Both the selection
-and the order are **remembered per report** (via `QSettings`) so they persist
-across files and sessions. "Reset to defaults" restores the shipped set and
-order. Column logic lives in `timeline_reader/columns.py`.
-
-Exports default to the **chosen sequence's name** (e.g. `THR_L_260721.csv`).
-
-> Marker/locator extraction is implemented but **unverified** — the sample bin
-> contains no markers. It reads `avb.misc.Marker` comments wherever they attach;
-> share a bin with locators and it can be confirmed/tuned.
 
 Each report can be **exported to CSV, TSV, Excel (`.xlsx`), OpenDocument
 (`.ods`) or Avid Markers (`.txt`)** — SRT for captions — or copied to the
