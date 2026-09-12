@@ -39,7 +39,7 @@ keep them, which adds a **Muted** column flagging them.
 
 ### 5. SRT Generator
 Converts an **Avid bin (`.avb`)** file into a standard **SubRip (`.srt`)**
-subtitle file, with a live, editable preview and a selectable frame rate. 
+subtitle file, with an editable preview and a selectable frame rate. 
 
 ### Multi-sequence sources
 When a bin contains more than one sequence, a **Sequence picker** appears
