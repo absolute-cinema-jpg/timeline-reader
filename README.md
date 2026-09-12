@@ -61,8 +61,8 @@ rows** button (next to *Clear selection*, shown only once you've deleted
 something) to bring every row back. Deletions survive column reorders and only
 affect the export/preview — the loaded file is never changed.
 
-**Keyboard:** **shift-⇧← ⇧→** move between tabs, **shift-⇧↑ ⇧↓** cycle through the
-sequences in the loaded bin, **shift-⇧Enter** opens the file picker (Browse… /
+**Keyboard:** **⇧← ⇧→** move between tabs, **⇧↑ ⇧↓** cycle through the
+sequences in the loaded bin, **⇧Enter** opens the file picker (Browse… /
 Replace…) and **Enter** exports the current report. Plain arrows move around
 the table as usual, and text fields keep their keys. **⌘W** closes the app.
 
