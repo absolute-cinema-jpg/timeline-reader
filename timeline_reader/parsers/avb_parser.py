@@ -55,10 +55,12 @@ class _OpenWatch(threading.Thread):
         self._fd = fd
         self._size = max(size, 1)
         self._phase = phase
-        self._stop = threading.Event()
+        # Not ``_stop``: on Python 3.9 (the universal release build) that name
+        # is a private Thread method join() calls, and shadowing it breaks it.
+        self._halt = threading.Event()
 
     def run(self) -> None:
-        while not self._stop.wait(0.05):
+        while not self._halt.wait(0.05):
             try:
                 pos = os.lseek(self._fd, 0, os.SEEK_CUR)
             except OSError:
@@ -66,7 +68,7 @@ class _OpenWatch(threading.Thread):
             self._phase.step(pos, self._size)
 
     def close(self) -> None:
-        self._stop.set()
+        self._halt.set()
         self.join()
         self._phase.finish()
 
